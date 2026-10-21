@@ -131,3 +131,35 @@ The generated APKs will be output to:
 - **Self-Contained Demo Mode:** Believable local mock architecture enabling immediate evaluation without personal cloud credentials or cost.
 - **Privacy First:** Explicit consent, foreground-only location access, zero background tracking without user knowledge, and strict data minimization.
 
+---
+
+## 📚 Complete Project Documentation
+
+| Document | Purpose |
+|---|---|
+| [**`DEMO_MODE.md`**](file:///DEMO_MODE.md) | **Start Here!** 5-minute evaluator guide to running the app without Firebase credentials. |
+| [**`docs/REQUIREMENTS.md`**](file:///docs/REQUIREMENTS.md) | Hardware, Android SDK, JDK, device, and cloud service prerequisites. |
+| [**`docs/SETUP.md`**](file:///docs/SETUP.md) | Complete step-by-step Windows 11 setup guide with copyable PowerShell commands. |
+| [**`docs/DEVELOPMENT.md`**](file:///docs/DEVELOPMENT.md) | Everyday Gradle tasks, build flavors, ADB tools, and Cloud Functions scripts. |
+| [**`docs/DEBUGGING.md`**](file:///docs/DEBUGGING.md) | Practical troubleshooting handbook with 11-step diagnostic workflow and fixes. |
+| [**`docs/TESTING.md`**](file:///docs/TESTING.md) | Unit test execution, test report inspection, and comprehensive manual regression checklist. |
+| [**`docs/SECURITY.md`**](file:///docs/SECURITY.md) | Threat model, trust boundaries, privacy controls, and security roadmap. |
+| [**`CONTRIBUTING.md`**](file:///CONTRIBUTING.md) | Coding style, architecture guidelines, test requirements, and pull request workflow. |
+
+---
+
+## 🔧 Troubleshooting Quick-Links
+
+If you encounter an issue during setup or execution:
+
+| Issue | Quick Fix | Detailed Guide |
+|---|---|---|
+| **Gradle JDK mismatch** | Point `JAVA_HOME` to Android Studio's bundled JBR (`jbr-21` / `jbr-17`) | [DEBUGGING.md §2.1](file:///docs/DEBUGGING.md#problem-21-incompatible-java--jdk-version) |
+| **Missing Firebase credentials** | Switch to the **`demoDebug`** build variant (zero setup required) | [DEMO_MODE.md](file:///DEMO_MODE.md) |
+| **Room schema mismatch** | Ensure entity `@NonNull` annotations match `TEXT NOT NULL` in migrations | [DEBUGGING.md §4.1](file:///docs/DEBUGGING.md#problem-41-illegalstateexception-room-cannot-verify-the-data-integrity) |
+| **ADB device not detected** | Enable USB debugging on phone and accept RSA fingerprint prompt | [DEBUGGING.md §3.1](file:///docs/DEBUGGING.md#problem-31-adb-does-not-detect-physical-phone) |
+| **SMS app not found** | SafeHer automatically falls back to copying the alert to the clipboard | [DEBUGGING.md §5.2](file:///docs/DEBUGGING.md#problem-52-sms-app-fails-to-open-during-emergency-sos-handoff) |
+
+For comprehensive diagnostic commands and step-by-step fixes, refer to [**`docs/DEBUGGING.md`**](file:///docs/DEBUGGING.md).
+
+
