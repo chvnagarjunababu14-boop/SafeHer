@@ -1,0 +1,74 @@
+rules_version = '2';
+service cloud.firestore {
+  match /databases/{database}/documents {
+
+    // Helper: is authenticated
+    function isAuthenticated() {
+      return request.auth != null && request.auth.uid != null;
+    }
+
+    // Helper: is owner of user doc
+    function isOwner(uid) {
+      return isAuthenticated() && request.auth.uid == uid;
+    }
+
+    // User profile documents
+    match /users/{uid} {
+      allow read: if isAuthenticated();
+      allow create, update: if isOwner(uid) &&
+        !request.resource.data.diff(resource.data).affectedKeys().hasAny(['isVerified', 'role', 'admin']);
+      allow delete: if false;
+    }
+
+    // Invitations: Handled entirely via trusted Cloud Functions
+    // Direct client reads and writes are blocked to prevent token enumeration & forgery.
+    match /invitations/{inviteId} {
+      allow read, write: if false;
+    }
+
+    // Relationships: Created and revoked strictly through trusted Cloud Functions
+    // Read permitted only for participants in the relationship
+    match /relationships/{relationshipId} {
+      allow read: if isAuthenticated() && (
+        resource.data.senderUid == request.auth.uid ||
+        resource.data.guardianUid == request.auth.uid
+      );
+      allow write: if false;
+    }
+
+    // SOS Alerts: Created strictly through trusted Cloud Functions
+    // Read permitted only for the sender or explicit authorized recipients
+    match /alerts/{alertId} {
+      allow read: if isAuthenticated() && (
+        resource.data.senderUid == request.auth.uid ||
+        request.auth.uid in resource.data.recipientUids
+      );
+      allow write: if false;
+
+      // Sensitive subcollection: Location coordinates
+      // Read permitted only after alert-level authorization
+      match /sensitive/location {
+        allow read: if isAuthenticated() && (
+          get(/databases/$(database)/documents/alerts/$(alertId)).data.senderUid == request.auth.uid ||
+          request.auth.uid in get(/databases/$(database)/documents/alerts/$(alertId)).data.recipientUids
+        );
+        allow write: if false;
+      }
+
+      // Delivery Status: Updated strictly via backend Cloud Functions
+      // Read permitted for sender or the specific guardian recipient
+      match /delivery_status/{guardianUid} {
+        allow read: if isAuthenticated() && (
+          get(/databases/$(database)/documents/alerts/$(alertId)).data.senderUid == request.auth.uid ||
+          guardianUid == request.auth.uid
+        );
+        allow write: if false;
+      }
+    }
+
+    // Deny all other collections by default
+    match /{document=**} {
+      allow read, write: if false;
+    }
+  }
+}

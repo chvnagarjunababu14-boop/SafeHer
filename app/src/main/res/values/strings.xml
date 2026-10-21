@@ -1,0 +1,112 @@
+<resources>
+    <string name="app_name">SafeHer</string>
+    <string name="welcome_title">SafeHer</string>
+    <string name="welcome_tagline">Your personal safety &amp; rapid assistance companion</string>
+    <string name="phase_indicator">Phase 2.1 • UI Polish</string>
+    <string name="get_started">Get Started</string>
+    <string name="privacy_badge">Privacy First • Offline Capable • Zero Unnecessary Tracking</string>
+
+    <!-- Top App Bar -->
+    <string name="greeting_user">Welcome to SafeHer</string>
+    <string name="status_protected">UI Preview Mode</string>
+    <string name="profile_avatar_desc">Profile &amp; Settings Preview</string>
+
+    <!-- Safety Hero Section -->
+    <string name="hero_title">Your Safety, Our Priority</string>
+    <string name="hero_subtitle">SafeHer is designed for rapid emergency signaling and trusted guardian alerts. (UI Preview)</string>
+    <string name="hero_badge">Setup Required in Phase 4</string>
+    <string name="guardians_unconfigured">0 Guardians Added</string>
+
+    <!-- SOS Section -->
+    <string name="sos_title">SOS</string>
+    <string name="sos_instruction">Press and hold for SOS</string>
+    <string name="sos_holding">Keep holding…</string>
+    <string name="sos_canceled">Released early • Cancelled</string>
+    <string name="sos_button_desc">Emergency SOS demonstration button. Press and hold for two seconds to view simulated flow.</string>
+    <string name="sos_preview_footnote">Hold 2s for UI demo • No real emergency dispatched</string>
+
+    <!-- Safety Shortcuts -->
+    <string name="shortcuts_section_title">Safety Shortcuts</string>
+    <string name="shortcut_live_tracking">Live Tracking</string>
+    <string name="shortcut_live_tracking_desc">Share real-time path (Preview)</string>
+    <string name="shortcut_contacts">Trusted Contacts</string>
+    <string name="shortcut_contacts_desc">Configure circle (Phase 4)</string>
+    <string name="shortcut_safe_journey">Safe Journey</string>
+    <string name="shortcut_safe_journey_desc">Trip timer &amp; check-in</string>
+    <string name="shortcut_emergency_call">Emergency (112)</string>
+    <string name="shortcut_emergency_call_desc">Emergency dialer (Preview)</string>
+
+    <!-- Quick Actions -->
+    <string name="quick_actions_title">Quick Actions</string>
+    <string name="quick_share_status">Share Status</string>
+    <string name="quick_share_status_desc">"I\'m safe" instant ping</string>
+    <string name="quick_check_in">Check-In</string>
+    <string name="quick_check_in_desc">Simulate alert ping</string>
+    <string name="quick_safety_tips">Safety Tips</string>
+    <string name="quick_safety_tips_desc">Rights &amp; offline guides</string>
+
+    <!-- Bottom Navigation -->
+    <string name="nav_home">Home</string>
+    <string name="nav_map">Map</string>
+    <string name="nav_journeys">Journeys</string>
+    <string name="nav_contacts">Contacts</string>
+    <string name="nav_more">More</string>
+
+    <!-- Map & Location -->
+    <string name="map_title">Live Safety Map</string>
+    <string name="map_subtitle">On-device OpenStreetMap • Foreground GPS</string>
+    <string name="map_permission_rationale_title">Enable Device Location</string>
+    <string name="map_permission_rationale_desc">SafeHer uses foreground location to display your coordinates on the map. Your position stays strictly on your device and is never shared or transmitted without consent.</string>
+    <string name="map_permission_grant">Enable Location Access</string>
+    <string name="map_permission_denied_title">Location Access Needed</string>
+    <string name="map_permission_denied_desc">Location permission was denied. SafeHer cannot display your live position on the map without permission.</string>
+    <string name="map_open_settings">Open Device Settings</string>
+    <string name="map_location_disabled_title">Device Location is Turned Off</string>
+    <string name="map_location_disabled_desc">System location services are currently turned off. Turn them on in Android Settings to see your live map position.</string>
+    <string name="map_enable_location_services">Turn On Device Location</string>
+    <string name="map_loading_gps">Acquiring GPS fix…</string>
+    <string name="map_recenter_desc">Recenter on my location</string>
+    <string name="map_refresh_desc">Refresh location</string>
+    <string name="map_stop_desc">Stop / Clear location</string>
+    <string name="map_attribution">© OpenStreetMap contributors</string>
+    <string name="map_privacy_guarantee">On-Device Only • No Cloud Sync</string>
+
+    <!-- Contacts & Guardians -->
+    <string name="contacts_screen_title">Trusted Guardians &amp; Circle</string>
+    <string name="contacts_screen_subtitle">Emergency inner circle stored locally on your device</string>
+    <string name="contacts_empty_title">No Guardians Added Yet</string>
+    <string name="contacts_empty_desc">Add family members, trusted friends, or emergency contacts who will be prioritized during safety alerts in future phases.</string>
+    <string name="contacts_add_action">Add Guardian</string>
+    <string name="contacts_add_first_action">Add First Guardian</string>
+    <string name="contacts_privacy_notice">Saved locally • No invitations or SMS are sent</string>
+    <string name="contacts_unverified_badge">Not verified</string>
+
+    <!-- Contact Permissions -->
+    <string name="contacts_permission_rationale_title">Allow Contact Access</string>
+    <string name="contacts_permission_rationale_desc">SafeHer requests contact access to let you select a trusted guardian from your phonebook. Your contact data stays strictly on your device and is never shared or uploaded.</string>
+    <string name="contacts_permission_continue">Continue</string>
+    <string name="contacts_permission_enter_manually">Enter Manually</string>
+    <string name="contacts_permission_denied_title">Contact Permission Needed</string>
+    <string name="contacts_permission_denied_desc">Contacts permission is currently disabled. To import from your address book, please enable Contacts access in App Settings. You can also enter guardian details manually.</string>
+    <string name="contacts_permission_open_settings">Open Settings</string>
+    <string name="contacts_permission_denied_feedback">Contacts permission was denied. You can enter your guardian\'s details manually.</string>
+
+    <!-- Safe Journeys (Phase 5) -->
+    <string name="journeys_screen_title">Safe Journeys</string>
+    <string name="journeys_screen_subtitle">Local ETA monitoring &amp; safety check-ins</string>
+    <string name="journeys_empty_title">No Journeys Recorded</string>
+    <string name="journeys_empty_desc">Set a destination and expected arrival time to track your trips and check-ins locally. Zero network tracking.</string>
+    <string name="journeys_start_action">Start Safe Journey</string>
+    <string name="journeys_start_first_action">Start First Journey</string>
+    <string name="journeys_active_badge">Active Journey</string>
+    <string name="journeys_overdue_badge">Overdue</string>
+    <string name="journeys_completed_badge">Completed</string>
+    <string name="journeys_cancelled_badge">Cancelled</string>
+    <string name="journeys_check_in_action">Check In (I\'m Safe)</string>
+    <string name="journeys_extend_action">Extend Time</string>
+    <string name="journeys_finish_action">Arrived Safely</string>
+    <string name="journeys_cancel_action">Cancel Journey</string>
+    <string name="journeys_history_title">Journey History</string>
+    <string name="journeys_privacy_notice">Stored locally on device • No location or alerts transmitted</string>
+</resources>
+

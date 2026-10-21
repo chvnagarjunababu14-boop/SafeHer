@@ -1,0 +1,518 @@
+package com.safeher.app.ui.screens.home
+
+import androidx.lifecycle.ViewModel
+import androidx.lifecycle.viewModelScope
+import com.safeher.app.data.guardian.Guardian
+import com.safeher.app.data.guardian.GuardianRepository
+import com.safeher.app.data.journey.Journey
+import com.safeher.app.data.journey.JourneyRepository
+import com.safeher.app.data.location.LocationData
+import com.safeher.app.data.location.LocationRepository
+import com.safeher.app.data.location.LocationResult
+import com.safeher.app.data.sos.EmergencyMessageBuilder
+import kotlinx.coroutines.Job
+import kotlinx.coroutines.delay
+import kotlinx.coroutines.flow.MutableStateFlow
+import kotlinx.coroutines.flow.StateFlow
+import kotlinx.coroutines.flow.asStateFlow
+import kotlinx.coroutines.flow.launchIn
+import kotlinx.coroutines.flow.onEach
+import kotlinx.coroutines.flow.update
+import kotlinx.coroutines.isActive
+import kotlinx.coroutines.launch
+
+enum class HomeTab {
+    HOME,
+    MAP,
+    JOURNEYS,
+    CONTACTS,
+    MORE
+}
+
+sealed interface ActiveDialog {
+    data object None : ActiveDialog
+    data object SosSimulation : ActiveDialog
+    data object EmergencySos : ActiveDialog
+    data object LiveTrackingPreview : ActiveDialog
+    data object TrustedContactsPreview : ActiveDialog
+    data object SafeJourneyPreview : ActiveDialog
+    data object EmergencyCallPreview : ActiveDialog
+    data object ShareStatusPreview : ActiveDialog
+    data object CheckInPreview : ActiveDialog
+    data object SafetyTipsPreview : ActiveDialog
+    data object ProfileSettingsPreview : ActiveDialog
+}
+
+enum class SosAlertChannel {
+    REMOTE_FCM,
+    SYSTEM_SMS
+}
+
+data class SosWorkflowState(
+    val isOpen: Boolean = false,
+    val alertChannel: SosAlertChannel = SosAlertChannel.REMOTE_FCM,
+    val guardians: List<Guardian> = emptyList(),
+    val selectedGuardianIds: Set<Long> = emptySet(),
+    val remoteGuardians: List<com.safeher.app.data.remoteguardian.RemoteGuardian> = emptyList(),
+    val selectedRemoteGuardianUids: Set<String> = emptySet(),
+    val isAcquiringLocation: Boolean = false,
+    val locationData: LocationData? = null,
+    val locationError: String? = null,
+    val includeLocation: Boolean = true,
+    val customNote: String = "",
+    val editableMessage: String = "",
+    val isLaunchingComposer: Boolean = false,
+    val handoffNotice: String? = null,
+    val handoffError: String? = null,
+    val isCopiedToClipboard: Boolean = false,
+    val isDispatchingRemote: Boolean = false,
+    val activeRemoteAlertId: String? = null,
+    val remoteDeliveryStatuses: List<com.safeher.app.data.remotesos.RecipientDeliveryInfo> = emptyList(),
+    val remoteDispatchError: String? = null,
+    val isRemoteDispatchSuccessful: Boolean = false,
+    val isDemoMode: Boolean = false
+) {
+    val selectedGuardians: List<Guardian>
+        get() = guardians.filter { selectedGuardianIds.contains(it.id) }
+
+    val selectedRecipients: List<String>
+        get() = EmergencyMessageBuilder.cleanAndDeduplicateRecipients(
+            selectedGuardians.map { it.phoneNumber }
+        )
+
+    val hasEligibleRecipients: Boolean
+        get() = selectedRecipients.isNotEmpty()
+
+    val selectedRemoteGuardians: List<com.safeher.app.data.remoteguardian.RemoteGuardian>
+        get() = remoteGuardians.filter { selectedRemoteGuardianUids.contains(it.guardianUid) }
+
+    val hasEligibleRemoteRecipients: Boolean
+        get() = selectedRemoteGuardians.isNotEmpty()
+}
+
+data class HomeUiState(
+    val currentTab: HomeTab = HomeTab.HOME,
+    val userName: String = "Guest",
+    val isProtectionActive: Boolean = false,
+    val guardianCount: Int = 0,
+    val activeJourney: Journey? = null,
+    val currentTimeMillis: Long = System.currentTimeMillis(),
+    val isHoldingSos: Boolean = false,
+    val sosHoldProgress: Float = 0f,
+    val sosFeedbackText: String = "Press and hold for SOS",
+    val activeDialog: ActiveDialog = ActiveDialog.None,
+    val isDemoMode: Boolean = false,
+    val sosWorkflow: SosWorkflowState = SosWorkflowState()
+)
+
+class HomeViewModel(
+    private val guardianRepository: GuardianRepository? = null,
+    private val journeyRepository: JourneyRepository? = null,
+    private val locationRepository: LocationRepository? = null,
+    private val authRepository: com.safeher.app.data.auth.AuthRepository? = null,
+    private val remoteGuardianRepository: com.safeher.app.data.remoteguardian.RemoteGuardianRepository? = null,
+    private val remoteSosRepository: com.safeher.app.data.remotesos.RemoteSosRepository? = null,
+    private val demoModeManager: com.safeher.app.data.demo.DemoModeManager? = null,
+    private val dispatcher: kotlinx.coroutines.CoroutineDispatcher = kotlinx.coroutines.Dispatchers.Main,
+    coroutineScope: kotlinx.coroutines.CoroutineScope? = null
+) : ViewModel() {
+
+    private val scope: kotlinx.coroutines.CoroutineScope = coroutineScope ?: viewModelScope
+
+    private val _uiState = MutableStateFlow(HomeUiState())
+    val uiState: StateFlow<HomeUiState> = _uiState.asStateFlow()
+
+    private var clockJob: Job? = null
+    private var deliveryStatusJob: Job? = null
+
+    init {
+        guardianRepository?.getGuardianCountFlow()
+            ?.onEach { count ->
+                _uiState.update { it.copy(guardianCount = count) }
+            }
+            ?.launchIn(scope)
+
+        journeyRepository?.getActiveJourneyFlow()
+            ?.onEach { active ->
+                _uiState.update { it.copy(activeJourney = active) }
+            }
+            ?.launchIn(scope)
+
+        demoModeManager?.isDemoMode
+            ?.onEach { isDemo ->
+                _uiState.update { current ->
+                    current.copy(
+                        isDemoMode = isDemo,
+                        sosWorkflow = current.sosWorkflow.copy(isDemoMode = isDemo)
+                    )
+                }
+            }
+            ?.launchIn(scope)
+
+        startClockTicker()
+    }
+
+    private fun startClockTicker() {
+        clockJob?.cancel()
+        clockJob = scope.launch(dispatcher) {
+            while (isActive) {
+                delay(1000L)
+                val now = System.currentTimeMillis()
+                val currentActive = _uiState.value.activeJourney
+
+                if (currentActive != null &&
+                    currentActive.status == com.safeher.app.data.journey.JourneyStatus.ACTIVE &&
+                    now >= currentActive.expectedArrivalTimestamp
+                ) {
+                    journeyRepository?.refreshJourneyStatus()
+                }
+
+                _uiState.update { it.copy(currentTimeMillis = now) }
+            }
+        }
+    }
+
+    private var holdJob: Job? = null
+    private val requiredHoldDurationMs = 2000L
+    private val tickIntervalMs = 50L
+
+    fun selectTab(tab: HomeTab) {
+        _uiState.value = _uiState.value.copy(currentTab = tab)
+    }
+
+    fun startSosHold() {
+        holdJob?.cancel()
+        _uiState.value = _uiState.value.copy(
+            isHoldingSos = true,
+            sosHoldProgress = 0f,
+            sosFeedbackText = "Keep holding…"
+        )
+
+        holdJob = scope.launch(dispatcher) {
+            val totalTicks = requiredHoldDurationMs / tickIntervalMs
+            var currentTick = 0
+            while (currentTick < totalTicks) {
+                delay(tickIntervalMs)
+                currentTick++
+                val progress = (currentTick.toFloat() / totalTicks).coerceIn(0f, 1f)
+                _uiState.value = _uiState.value.copy(sosHoldProgress = progress)
+            }
+            // Deliberate hold completed: trigger the user-confirmed emergency workflow!
+            triggerSosWorkflow()
+        }
+    }
+
+    fun cancelSosHold() {
+        if (_uiState.value.isHoldingSos) {
+            holdJob?.cancel()
+            holdJob = null
+            _uiState.value = _uiState.value.copy(
+                isHoldingSos = false,
+                sosHoldProgress = 0f,
+                sosFeedbackText = "Released early • Cancelled"
+            )
+        }
+    }
+
+    /**
+     * Activates the real, user-confirmed Emergency SOS workflow.
+     * Loads guardians, acquires an on-demand location fix, and prepares the editable message.
+     */
+    fun triggerSosWorkflow() {
+        holdJob = null
+        _uiState.update {
+            it.copy(
+                isHoldingSos = false,
+                sosHoldProgress = 0f,
+                sosFeedbackText = "Press and hold for SOS",
+                activeDialog = ActiveDialog.EmergencySos,
+                sosWorkflow = it.sosWorkflow.copy(
+                    isOpen = true,
+                    isAcquiringLocation = true,
+                    handoffNotice = null,
+                    handoffError = null,
+                    isCopiedToClipboard = false
+                )
+            )
+        }
+
+        scope.launch(dispatcher) {
+            val guardians = guardianRepository?.getGuardians() ?: emptyList()
+            val eligibleGuardians = EmergencyMessageBuilder.getEligibleGuardians(guardians)
+            val initialSelectedIds = eligibleGuardians.map { it.id }.toSet()
+
+            val remoteGuardians = remoteGuardianRepository?.refreshRemoteGuardians()?.getOrNull() ?: emptyList()
+            val activeRemoteUids = remoteGuardians.filter { it.isActive }.map { it.guardianUid }.toSet()
+            val defaultChannel = if (activeRemoteUids.isNotEmpty()) SosAlertChannel.REMOTE_FCM else SosAlertChannel.SYSTEM_SMS
+
+            var locData: LocationData? = null
+            var locError: String? = null
+
+            if (locationRepository != null) {
+                when (val result = locationRepository.getCurrentLocation(isPrecise = true)) {
+                    is LocationResult.Success -> {
+                        locData = result.location
+                    }
+                    is LocationResult.PermissionDenied -> {
+                        locError = "Location permission not granted. Emergency SMS will proceed without GPS."
+                    }
+                    is LocationResult.LocationDisabled -> {
+                        locError = "Device location (GPS) is turned off."
+                    }
+                    is LocationResult.Error -> {
+                        locError = result.message
+                    }
+                }
+            } else {
+                locError = "Location provider not configured."
+            }
+
+            val initialMessage = EmergencyMessageBuilder.buildMessage(
+                userName = _uiState.value.userName,
+                customNote = null,
+                location = locData,
+                includeLocation = true
+            )
+
+            _uiState.update { current ->
+                current.copy(
+                    sosWorkflow = current.sosWorkflow.copy(
+                        alertChannel = defaultChannel,
+                        guardians = guardians,
+                        selectedGuardianIds = initialSelectedIds,
+                        remoteGuardians = remoteGuardians,
+                        selectedRemoteGuardianUids = activeRemoteUids,
+                        isAcquiringLocation = false,
+                        locationData = locData,
+                        locationError = locError,
+                        includeLocation = true,
+                        editableMessage = initialMessage
+                    )
+                )
+            }
+        }
+    }
+
+    fun setSosAlertChannel(channel: SosAlertChannel) {
+        _uiState.update { it.copy(sosWorkflow = it.sosWorkflow.copy(alertChannel = channel)) }
+    }
+
+    fun toggleRemoteGuardianSelection(uid: String) {
+        _uiState.update { current ->
+            val existing = current.sosWorkflow.selectedRemoteGuardianUids
+            val updated = if (existing.contains(uid)) existing - uid else existing + uid
+            current.copy(sosWorkflow = current.sosWorkflow.copy(selectedRemoteGuardianUids = updated))
+        }
+    }
+
+    fun selectAllRemoteGuardians() {
+        _uiState.update { current ->
+            val allUids = current.sosWorkflow.remoteGuardians.filter { it.isActive }.map { it.guardianUid }.toSet()
+            current.copy(sosWorkflow = current.sosWorkflow.copy(selectedRemoteGuardianUids = allUids))
+        }
+    }
+
+    fun deselectAllRemoteGuardians() {
+        _uiState.update { current ->
+            current.copy(sosWorkflow = current.sosWorkflow.copy(selectedRemoteGuardianUids = emptySet()))
+        }
+    }
+
+    fun dispatchRemoteSosAlert() {
+        val workflow = _uiState.value.sosWorkflow
+        val selected = workflow.selectedRemoteGuardians
+        if (selected.isEmpty()) {
+            _uiState.update {
+                it.copy(
+                    sosWorkflow = it.sosWorkflow.copy(
+                        remoteDispatchError = "Please select at least one active remote guardian."
+                    )
+                )
+            }
+            return
+        }
+
+        _uiState.update {
+            it.copy(
+                sosWorkflow = it.sosWorkflow.copy(
+                    isDispatchingRemote = true,
+                    remoteDispatchError = null
+                )
+            )
+        }
+
+        scope.launch(dispatcher) {
+            val idempotencyKey = java.util.UUID.randomUUID().toString()
+            val result = remoteSosRepository?.dispatchRemoteSos(
+                recipients = selected,
+                messageText = workflow.editableMessage,
+                location = workflow.locationData,
+                includeLocation = workflow.includeLocation,
+                idempotencyKey = idempotencyKey
+            )
+
+            if (result != null && result.isSuccess) {
+                val data = result.getOrThrow()
+                _uiState.update { current ->
+                    current.copy(
+                        sosWorkflow = current.sosWorkflow.copy(
+                            isDispatchingRemote = false,
+                            activeRemoteAlertId = data.alertId,
+                            isRemoteDispatchSuccessful = true
+                        )
+                    )
+                }
+
+                deliveryStatusJob?.cancel()
+                deliveryStatusJob = remoteSosRepository.observeDeliveryStatuses(data.alertId)
+                    .onEach { statuses ->
+                        _uiState.update { current ->
+                            current.copy(
+                                sosWorkflow = current.sosWorkflow.copy(
+                                    remoteDeliveryStatuses = statuses
+                                )
+                            )
+                        }
+                    }
+                    .launchIn(scope)
+            } else {
+                val errorMsg = result?.exceptionOrNull()?.localizedMessage
+                    ?: "Failed to dispatch remote alert to Firebase backend. Please use SMS fallback."
+                _uiState.update { current ->
+                    current.copy(
+                        sosWorkflow = current.sosWorkflow.copy(
+                            isDispatchingRemote = false,
+                            remoteDispatchError = errorMsg
+                        )
+                    )
+                }
+            }
+        }
+    }
+
+    fun toggleGuardianSelection(guardianId: Long) {
+        _uiState.update { current ->
+            val existing = current.sosWorkflow.selectedGuardianIds
+            val updated = if (existing.contains(guardianId)) {
+                existing - guardianId
+            } else {
+                existing + guardianId
+            }
+            current.copy(sosWorkflow = current.sosWorkflow.copy(selectedGuardianIds = updated))
+        }
+    }
+
+    fun selectAllGuardians() {
+        _uiState.update { current ->
+            val allIds = EmergencyMessageBuilder.getEligibleGuardians(current.sosWorkflow.guardians).map { it.id }.toSet()
+            current.copy(sosWorkflow = current.sosWorkflow.copy(selectedGuardianIds = allIds))
+        }
+    }
+
+    fun deselectAllGuardians() {
+        _uiState.update { current ->
+            current.copy(sosWorkflow = current.sosWorkflow.copy(selectedGuardianIds = emptySet()))
+        }
+    }
+
+    fun toggleIncludeLocation(include: Boolean) {
+        _uiState.update { current ->
+            val updatedWorkflow = current.sosWorkflow.copy(includeLocation = include)
+            val updatedMessage = EmergencyMessageBuilder.buildMessage(
+                userName = current.userName,
+                customNote = if (updatedWorkflow.customNote.isNotBlank()) updatedWorkflow.customNote else null,
+                location = updatedWorkflow.locationData,
+                includeLocation = include
+            )
+            current.copy(
+                sosWorkflow = updatedWorkflow.copy(editableMessage = updatedMessage)
+            )
+        }
+    }
+
+    fun updateEditableMessage(newMessage: String) {
+        _uiState.update { current ->
+            current.copy(
+                sosWorkflow = current.sosWorkflow.copy(editableMessage = newMessage)
+            )
+        }
+    }
+
+    fun cancelSosWorkflow() {
+        deliveryStatusJob?.cancel()
+        _uiState.update { current ->
+            current.copy(
+                activeDialog = ActiveDialog.None,
+                sosWorkflow = SosWorkflowState()
+            )
+        }
+    }
+
+    fun startComposerLaunch() {
+        _uiState.update { current ->
+            current.copy(
+                sosWorkflow = current.sosWorkflow.copy(isLaunchingComposer = true, handoffError = null)
+            )
+        }
+    }
+
+    fun onComposerLaunched() {
+        _uiState.update { current ->
+            current.copy(
+                sosWorkflow = current.sosWorkflow.copy(
+                    isLaunchingComposer = false,
+                    handoffNotice = "Messaging app opened. Please press Send in your SMS app to dispatch."
+                )
+            )
+        }
+    }
+
+    fun onComposerFailed(error: String) {
+        _uiState.update { current ->
+            current.copy(
+                sosWorkflow = current.sosWorkflow.copy(
+                    isLaunchingComposer = false,
+                    handoffError = error
+                )
+            )
+        }
+    }
+
+    fun onMessageCopied() {
+        _uiState.update { current ->
+            current.copy(
+                sosWorkflow = current.sosWorkflow.copy(isCopiedToClipboard = true)
+            )
+        }
+    }
+
+    fun openDialog(dialog: ActiveDialog) {
+        if (dialog == ActiveDialog.EmergencySos) {
+            triggerSosWorkflow()
+        } else {
+            _uiState.value = _uiState.value.copy(activeDialog = dialog)
+        }
+    }
+
+    fun dismissDialog() {
+        _uiState.value = _uiState.value.copy(
+            activeDialog = ActiveDialog.None,
+            sosHoldProgress = 0f,
+            isHoldingSos = false,
+            sosWorkflow = SosWorkflowState()
+        )
+    }
+
+    fun simulateGuardianAcknowledgement(alertId: String) {
+        val repo = remoteSosRepository
+        if (repo is com.safeher.app.data.demo.DemoRemoteSosRepository) {
+            repo.simulateGuardianAcknowledgement(alertId)
+        }
+    }
+
+    override fun onCleared() {
+        super.onCleared()
+        clockJob?.cancel()
+        holdJob?.cancel()
+    }
+}
