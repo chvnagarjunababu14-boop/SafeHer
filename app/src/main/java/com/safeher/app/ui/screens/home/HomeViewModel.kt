@@ -9,7 +9,11 @@ import com.safeher.app.data.journey.JourneyRepository
 import com.safeher.app.data.location.LocationData
 import com.safeher.app.data.location.LocationRepository
 import com.safeher.app.data.location.LocationResult
+import com.safeher.app.data.sos.DirectSosManager
+import com.safeher.app.data.sos.DirectSosState
 import com.safeher.app.data.sos.EmergencyMessageBuilder
+import com.safeher.app.data.sos.SosPreferences
+import com.safeher.app.data.sos.SosPreferencesRepository
 import kotlinx.coroutines.Job
 import kotlinx.coroutines.delay
 import kotlinx.coroutines.flow.MutableStateFlow
@@ -33,6 +37,9 @@ sealed interface ActiveDialog {
     data object None : ActiveDialog
     data object SosSimulation : ActiveDialog
     data object EmergencySos : ActiveDialog
+    data object DirectSos : ActiveDialog
+    data object SosSettings : ActiveDialog
+    data object AccessibleSosConfirmation : ActiveDialog
     data object LiveTrackingPreview : ActiveDialog
     data object TrustedContactsPreview : ActiveDialog
     data object SafeJourneyPreview : ActiveDialog
@@ -102,7 +109,10 @@ data class HomeUiState(
     val sosFeedbackText: String = "Press and hold for SOS",
     val activeDialog: ActiveDialog = ActiveDialog.None,
     val isDemoMode: Boolean = false,
-    val sosWorkflow: SosWorkflowState = SosWorkflowState()
+    val sosWorkflow: SosWorkflowState = SosWorkflowState(),
+    val directSosState: DirectSosState = DirectSosState.Idle,
+    val sosPreferences: SosPreferences = SosPreferences(),
+    val localGuardians: List<Guardian> = emptyList()
 )
 
 class HomeViewModel(
@@ -113,6 +123,8 @@ class HomeViewModel(
     private val remoteGuardianRepository: com.safeher.app.data.remoteguardian.RemoteGuardianRepository? = null,
     private val remoteSosRepository: com.safeher.app.data.remotesos.RemoteSosRepository? = null,
     private val demoModeManager: com.safeher.app.data.demo.DemoModeManager? = null,
+    private val directSosManager: DirectSosManager? = null,
+    private val sosPreferencesRepository: SosPreferencesRepository? = null,
     private val dispatcher: kotlinx.coroutines.CoroutineDispatcher = kotlinx.coroutines.Dispatchers.Main,
     coroutineScope: kotlinx.coroutines.CoroutineScope? = null
 ) : ViewModel() {
@@ -132,22 +144,64 @@ class HomeViewModel(
             }
             ?.launchIn(scope)
 
+        guardianRepository?.getGuardiansFlow()
+            ?.onEach { list ->
+                _uiState.update { it.copy(localGuardians = list) }
+            }
+            ?.launchIn(scope)
+
         journeyRepository?.getActiveJourneyFlow()
             ?.onEach { active ->
                 _uiState.update { it.copy(activeJourney = active) }
             }
             ?.launchIn(scope)
 
-        demoModeManager?.isDemoMode
-            ?.onEach { isDemo ->
+        authRepository?.authState
+            ?.onEach { auth ->
+                val name = when (auth) {
+                    is com.safeher.app.data.auth.AuthState.Authenticated -> auth.user.displayLabel
+                    else -> "Guest"
+                }
+                _uiState.update { it.copy(userName = name) }
+            }
+            ?.launchIn(scope)
+
+        directSosManager?.state
+            ?.onEach { dState ->
                 _uiState.update { current ->
+                    val nextDialog = if (dState is DirectSosState.Idle && current.activeDialog == ActiveDialog.DirectSos) {
+                        ActiveDialog.None
+                    } else if (dState !is DirectSosState.Idle) {
+                        ActiveDialog.DirectSos
+                    } else {
+                        current.activeDialog
+                    }
                     current.copy(
-                        isDemoMode = isDemo,
-                        sosWorkflow = current.sosWorkflow.copy(isDemoMode = isDemo)
+                        directSosState = dState,
+                        activeDialog = nextDialog
                     )
                 }
             }
             ?.launchIn(scope)
+
+        sosPreferencesRepository?.preferencesFlow
+            ?.onEach { prefs ->
+                _uiState.update { it.copy(sosPreferences = prefs) }
+            }
+            ?.launchIn(scope)
+
+        if (com.safeher.app.BuildConfig.IS_DEMO_DEFAULT) {
+            demoModeManager?.isDemoMode
+                ?.onEach { isDemo ->
+                    _uiState.update { current ->
+                        current.copy(
+                            isDemoMode = isDemo,
+                            sosWorkflow = current.sosWorkflow.copy(isDemoMode = isDemo)
+                        )
+                    }
+                }
+                ?.launchIn(scope)
+        }
 
         startClockTicker()
     }
@@ -215,8 +269,9 @@ class HomeViewModel(
     }
 
     /**
-     * Activates the real, user-confirmed Emergency SOS workflow.
-     * Loads guardians, acquires an on-demand location fix, and prepares the editable message.
+     * Activates the emergency SOS workflow.
+     * When Direct SOS is authorized and configured, initiates the cancellable direct SMS flow.
+     * Otherwise prompts the user with setup requirements and offers the manual SMS fallback.
      */
     fun triggerSosWorkflow() {
         holdJob = null
@@ -224,7 +279,125 @@ class HomeViewModel(
             it.copy(
                 isHoldingSos = false,
                 sosHoldProgress = 0f,
-                sosFeedbackText = "Press and hold for SOS",
+                sosFeedbackText = "Press and hold for SOS"
+            )
+        }
+
+        if (directSosManager != null) {
+            val prefs = sosPreferencesRepository?.getPreferences() ?: SosPreferences()
+            if (prefs.isDirectSmsConsentGiven && prefs.isDirectSmsEnabled) {
+                _uiState.update { it.copy(activeDialog = ActiveDialog.DirectSos) }
+                directSosManager.startCancellableSos()
+            } else {
+                // Do not attempt automatic SMS without consent; guide the user to configure SOS.
+                openSosSettings()
+            }
+        } else {
+            openManualSosWorkflow()
+        }
+    }
+
+    fun cancelDirectSosCountdown() {
+        directSosManager?.cancelCountdown()
+        _uiState.update { it.copy(activeDialog = ActiveDialog.None) }
+    }
+
+    fun sendDirectSosImmediately() {
+        directSosManager?.triggerImmediateSos()
+    }
+
+    fun dismissDirectSos() {
+        directSosManager?.reset()
+        _uiState.update { it.copy(activeDialog = ActiveDialog.None) }
+    }
+
+    fun openSosSettings() {
+        directSosManager?.reset()
+        _uiState.update { it.copy(activeDialog = ActiveDialog.SosSettings) }
+    }
+
+    fun closeSosSettings() {
+        _uiState.update { it.copy(activeDialog = ActiveDialog.None) }
+    }
+
+    fun openAccessibleSosConfirmation() {
+        _uiState.update { it.copy(activeDialog = ActiveDialog.AccessibleSosConfirmation) }
+    }
+
+    fun confirmAccessibleSos() {
+        if (directSosManager != null) {
+            val prefs = sosPreferencesRepository?.getPreferences() ?: SosPreferences()
+            if (prefs.isDirectSmsConsentGiven && prefs.isDirectSmsEnabled) {
+                _uiState.update { it.copy(activeDialog = ActiveDialog.DirectSos) }
+                directSosManager.startCancellableSos()
+            } else {
+                openSosSettings()
+            }
+        } else {
+            openManualSosWorkflow()
+        }
+    }
+
+    fun cancelAccessibleSos() {
+        _uiState.update { it.copy(activeDialog = ActiveDialog.None) }
+    }
+
+    fun openManualSmsFallback() {
+        directSosManager?.reset()
+        openManualSosWorkflow()
+    }
+
+    fun setConsentGiven(consent: Boolean) {
+        sosPreferencesRepository?.setConsentGiven(consent)
+    }
+
+    fun setDirectSmsEnabled(enabled: Boolean) {
+        sosPreferencesRepository?.setDirectSmsEnabled(enabled)
+    }
+
+    fun setCustomSosMessage(message: String) {
+        sosPreferencesRepository?.setCustomSosMessage(message)
+    }
+
+    fun setLocationSharingEnabled(enabled: Boolean) {
+        sosPreferencesRepository?.setLocationSharingEnabled(enabled)
+    }
+
+    fun setCountdownDurationSeconds(seconds: Int) {
+        sosPreferencesRepository?.setCountdownDurationSeconds(seconds)
+    }
+
+    fun setBatteryAlertsConsent(consent: Boolean) {
+        sosPreferencesRepository?.setBatteryAlertsConsent(consent)
+    }
+
+    fun setBatteryAlertsEnabled(enabled: Boolean) {
+        sosPreferencesRepository?.setBatteryAlertsEnabled(enabled)
+    }
+
+    fun setBatteryAlertLocationEnabled(enabled: Boolean) {
+        sosPreferencesRepository?.setBatteryAlertLocationEnabled(enabled)
+    }
+
+    fun toggleGuardianSos(guardianId: Long, isEnabled: Boolean) {
+        scope.launch(dispatcher) {
+            guardianRepository?.updateSosEnabled(guardianId, isEnabled)
+        }
+    }
+
+    fun toggleGuardianBatteryAlert(guardianId: Long, isEnabled: Boolean) {
+        scope.launch(dispatcher) {
+            guardianRepository?.updateBatteryAlertEnabled(guardianId, isEnabled)
+        }
+    }
+
+    /**
+     * Activates the manual review-and-handoff Emergency SOS workflow.
+     * Loads guardians, acquires an on-demand location fix, and prepares the editable message.
+     */
+    fun openManualSosWorkflow() {
+        _uiState.update {
+            it.copy(
                 activeDialog = ActiveDialog.EmergencySos,
                 sosWorkflow = it.sosWorkflow.copy(
                     isOpen = true,
@@ -376,8 +549,12 @@ class HomeViewModel(
                     }
                     .launchIn(scope)
             } else {
-                val errorMsg = result?.exceptionOrNull()?.localizedMessage
-                    ?: "Failed to dispatch remote alert to Firebase backend. Please use SMS fallback."
+                val rawMsg = result?.exceptionOrNull()?.localizedMessage
+                val errorMsg = if (rawMsg?.contains("NOT_FOUND", ignoreCase = true) == true || rawMsg?.contains("404") == true) {
+                    "Remote SOS push alert backend is not configured yet. Please use SMS emergency messaging."
+                } else {
+                    rawMsg ?: "Failed to dispatch remote alert to Firebase backend. Please use SMS fallback."
+                }
                 _uiState.update { current ->
                     current.copy(
                         sosWorkflow = current.sosWorkflow.copy(

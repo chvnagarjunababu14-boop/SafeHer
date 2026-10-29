@@ -33,7 +33,8 @@ interface JourneyRepository {
         startLatitude: Double? = null,
         startLongitude: Double? = null,
         destinationLatitude: Double? = null,
-        destinationLongitude: Double? = null
+        destinationLongitude: Double? = null,
+        enableMonitoring: Boolean = true
     ): JourneyOperationResult
 
     /**
@@ -41,6 +42,48 @@ interface JourneyRepository {
      * Updates check-in count and timestamp.
      */
     suspend fun checkIn(id: Long): JourneyOperationResult
+
+    /**
+     * Confirms the user is safe when prompted by an overdue safety check.
+     * Cancels automatic overdue escalation.
+     */
+    suspend fun acknowledgeSafetyCheck(id: Long): JourneyOperationResult
+
+    /**
+     * Updates the last observed GPS location for an active journey.
+     */
+    suspend fun updateJourneyLocation(
+        journeyId: Long,
+        latitude: Double,
+        longitude: Double,
+        timestamp: Long = System.currentTimeMillis()
+    ): Boolean
+
+    /**
+     * Records that an overdue safety check notification was delivered to the user,
+     * setting the escalation deadline.
+     */
+    suspend fun recordSafetyCheckSent(
+        journeyId: Long,
+        checkTime: Long = System.currentTimeMillis(),
+        escalationDeadline: Long
+    ): Boolean
+
+    /**
+     * Marks that automatic overdue SOS escalation was attempted for this journey,
+     * ensuring idempotent single-dispatch.
+     */
+    suspend fun markOverdueEscalationAttempted(journeyId: Long): Boolean
+
+    /**
+     * Toggles whether background location monitoring is active for this journey.
+     */
+    suspend fun setMonitoringActive(journeyId: Long, isActive: Boolean): Boolean
+
+    /**
+     * Retrieves all active journeys that have background monitoring enabled.
+     */
+    suspend fun getActiveMonitoredJourneys(): List<Journey>
 
     /**
      * Extends the expected arrival time for an active or overdue journey.

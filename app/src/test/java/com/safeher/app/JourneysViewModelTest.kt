@@ -74,7 +74,8 @@ class FakeJourneyRepository : JourneyRepository {
         startLatitude: Double?,
         startLongitude: Double?,
         destinationLatitude: Double?,
-        destinationLongitude: Double?
+        destinationLongitude: Double?,
+        enableMonitoring: Boolean
     ): JourneyOperationResult {
         if (destination.isBlank()) {
             return JourneyOperationResult.ValidationError("destination", "Destination is required")
@@ -102,7 +103,8 @@ class FakeJourneyRepository : JourneyRepository {
             expectedArrivalTimestamp = expectedArrivalTimestamp,
             status = JourneyStatus.ACTIVE,
             createdAt = now,
-            updatedAt = now
+            updatedAt = now,
+            isMonitoringActive = enableMonitoring
         )
         journeysList.add(journey)
         eventsList.add(
@@ -279,6 +281,87 @@ class FakeJourneyRepository : JourneyRepository {
             emitEvents()
         }
         return updatedJourney ?: getActiveJourney()
+    }
+
+    override suspend fun acknowledgeSafetyCheck(id: Long): JourneyOperationResult {
+        val idx = journeysList.indexOfFirst { it.id == id }
+        if (idx == -1) return JourneyOperationResult.Error("Not found")
+        val item = journeysList[idx]
+        val now = System.currentTimeMillis()
+        journeysList[idx] = item.copy(safetyCheckAcknowledged = true, updatedAt = now)
+        eventsList.add(
+            JourneyEvent(
+                id = nextEventId++,
+                journeyId = id,
+                eventType = JourneyEventType.SAFETY_ACKNOWLEDGED,
+                timestamp = now,
+                metadata = "Safety confirmed by user"
+            )
+        )
+        emit()
+        emitEvents()
+        return JourneyOperationResult.Success(id)
+    }
+
+    override suspend fun updateJourneyLocation(journeyId: Long, latitude: Double, longitude: Double, timestamp: Long): Boolean {
+        val idx = journeysList.indexOfFirst { it.id == journeyId }
+        if (idx == -1) return false
+        val item = journeysList[idx]
+        journeysList[idx] = item.copy(lastLatitude = latitude, lastLongitude = longitude, lastLocationTimestamp = timestamp, updatedAt = timestamp)
+        emit()
+        return true
+    }
+
+    override suspend fun recordSafetyCheckSent(journeyId: Long, checkTime: Long, escalationDeadline: Long): Boolean {
+        val idx = journeysList.indexOfFirst { it.id == journeyId }
+        if (idx == -1) return false
+        val item = journeysList[idx]
+        journeysList[idx] = item.copy(overdueSafetyCheckTimestamp = checkTime, overdueEscalationDeadline = escalationDeadline, updatedAt = checkTime)
+        eventsList.add(
+            JourneyEvent(
+                id = nextEventId++,
+                journeyId = journeyId,
+                eventType = JourneyEventType.OVERDUE_SAFETY_CHECK_SENT,
+                timestamp = checkTime,
+                metadata = "Safety check notification sent"
+            )
+        )
+        emit()
+        emitEvents()
+        return true
+    }
+
+    override suspend fun markOverdueEscalationAttempted(journeyId: Long): Boolean {
+        val idx = journeysList.indexOfFirst { it.id == journeyId }
+        if (idx == -1) return false
+        val item = journeysList[idx]
+        val now = System.currentTimeMillis()
+        journeysList[idx] = item.copy(overdueEscalationAttempted = true, updatedAt = now)
+        eventsList.add(
+            JourneyEvent(
+                id = nextEventId++,
+                journeyId = journeyId,
+                eventType = JourneyEventType.OVERDUE_ESCALATION_SOS,
+                timestamp = now,
+                metadata = "Overdue SOS dispatched to guardians"
+            )
+        )
+        emit()
+        emitEvents()
+        return true
+    }
+
+    override suspend fun setMonitoringActive(journeyId: Long, isActive: Boolean): Boolean {
+        val idx = journeysList.indexOfFirst { it.id == journeyId }
+        if (idx == -1) return false
+        val item = journeysList[idx]
+        journeysList[idx] = item.copy(isMonitoringActive = isActive, updatedAt = System.currentTimeMillis())
+        emit()
+        return true
+    }
+
+    override suspend fun getActiveMonitoredJourneys(): List<Journey> {
+        return journeysList.filter { it.isMonitoringActive && it.isActiveOrOverdue }
     }
 }
 

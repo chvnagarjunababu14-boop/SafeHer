@@ -34,22 +34,16 @@ class DemoAuthRepository(
     private var explicitSignOut: Boolean = false
 
     init {
-        scope.launch {
-            demoModeManager.activeProfile.collect { profile ->
-                if (!explicitSignOut) {
-                    _authState.value = AuthState.Authenticated(profile.toAuthUser())
-                }
-            }
-        }
+        _authState.value = AuthState.Authenticated(DemoProfile.USER.toAuthUser())
 
         demoModeManager.registerResetListener {
             explicitSignOut = false
-            _authState.value = AuthState.Authenticated(demoModeManager.activeProfile.value.toAuthUser())
+            _authState.value = AuthState.Authenticated(DemoProfile.USER.toAuthUser())
         }
     }
 
     override fun getCurrentUser(): AuthUser? {
-        return if (explicitSignOut) null else demoModeManager.activeProfile.value.toAuthUser()
+        return if (explicitSignOut) null else DemoProfile.USER.toAuthUser()
     }
 
     override suspend fun signInWithEmail(email: String, password: String): AuthResult = withContext(dispatcher) {

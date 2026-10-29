@@ -57,7 +57,7 @@ class FirebaseRemoteSosRepository(
         }
 
         try {
-            val functions = FirebaseFunctions.getInstance()
+            val functions = FirebaseFunctions.getInstance(FUNCTIONS_REGION)
             val payload = mutableMapOf<String, Any>(
                 "idempotencyKey" to idempotencyKey,
                 "recipientGuardianUids" to activeRecipients,
@@ -95,7 +95,15 @@ class FirebaseRemoteSosRepository(
                 )
             )
         } catch (e: Exception) {
-            Result.failure(e)
+            val mapped = if ((e is com.google.firebase.functions.FirebaseFunctionsException && e.code == com.google.firebase.functions.FirebaseFunctionsException.Code.NOT_FOUND) ||
+                e.message?.contains("NOT_FOUND", ignoreCase = true) == true ||
+                e.message?.contains("404") == true
+            ) {
+                IllegalStateException("Remote SOS push dispatch is not configured yet. Please use SMS emergency messaging.")
+            } else {
+                e
+            }
+            Result.failure(mapped)
         }
     }
 
@@ -228,7 +236,7 @@ class FirebaseRemoteSosRepository(
     override suspend fun reportAlertReceived(alertId: String): Result<Unit> = withContext(dispatcher) {
         if (!isFirebaseAvailable) return@withContext Result.success(Unit)
         try {
-            val functions = FirebaseFunctions.getInstance()
+            val functions = FirebaseFunctions.getInstance(FUNCTIONS_REGION)
             functions.getHttpsCallable("reportAlertReceived").call(mapOf("alertId" to alertId)).await()
             Result.success(Unit)
         } catch (e: Exception) {
@@ -243,7 +251,7 @@ class FirebaseRemoteSosRepository(
             }
 
             try {
-                val functions = FirebaseFunctions.getInstance()
+                val functions = FirebaseFunctions.getInstance(FUNCTIONS_REGION)
                 val payload = mapOf("alertId" to alertId, "deviceModel" to deviceModel)
                 functions.getHttpsCallable("acknowledgeAlert").call(payload).await()
                 Result.success(Unit)
@@ -251,4 +259,61 @@ class FirebaseRemoteSosRepository(
                 Result.failure(e)
             }
         }
+
+    override fun getAuthorizedAlertsFlow(): Flow<List<RemoteAlertDetails>> = callbackFlow {
+        if (!isFirebaseAvailable) {
+            trySend(emptyList())
+            awaitClose { }
+            return@callbackFlow
+        }
+
+        val auth = FirebaseAuth.getInstance()
+        val currentUid = auth.currentUser?.uid
+        if (currentUid == null) {
+            trySend(emptyList())
+            awaitClose { }
+            return@callbackFlow
+        }
+
+        val firestore = FirebaseFirestore.getInstance()
+        val registration = firestore.collection("alerts")
+            .whereArrayContains("recipientUids", currentUid)
+            .addSnapshotListener { snapshot, error ->
+                if (error != null) {
+                    trySend(emptyList())
+                    return@addSnapshotListener
+                }
+
+                val alerts = snapshot?.documents?.mapNotNull { doc ->
+                    val senderUid = doc.getString("senderUid") ?: ""
+                    val senderDisplayName = doc.getString("senderDisplayName") ?: "SafeHer User"
+                    val messageText = doc.getString("messageText") ?: "Emergency Alert"
+                    val hasLocation = doc.getBoolean("hasLocation") ?: false
+                    val createdAt = doc.getTimestamp("createdAt")?.toDate()?.time ?: System.currentTimeMillis()
+
+                    RemoteAlertDetails(
+                        alertId = doc.id,
+                        senderUid = senderUid,
+                        senderDisplayName = senderDisplayName,
+                        messageText = messageText,
+                        hasLocation = hasLocation,
+                        latitude = null,
+                        longitude = null,
+                        accuracyMeters = null,
+                        createdAtMillis = createdAt,
+                        isAcknowledgedByMe = false
+                    )
+                } ?: emptyList()
+
+                trySend(alerts)
+            }
+
+        awaitClose {
+            registration.remove()
+        }
+    }.flowOn(dispatcher)
+
+    companion object {
+        const val FUNCTIONS_REGION = "asia-south1"
+    }
 }

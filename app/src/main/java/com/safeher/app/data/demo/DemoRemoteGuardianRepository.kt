@@ -1,6 +1,7 @@
 package com.safeher.app.data.demo
 
 import com.safeher.app.data.remoteguardian.GuardianInvite
+import com.safeher.app.data.remoteguardian.InvitePhraseGenerator
 import com.safeher.app.data.remoteguardian.RemoteGuardian
 import com.safeher.app.data.remoteguardian.RemoteGuardianRepository
 import kotlinx.coroutines.CoroutineDispatcher
@@ -47,44 +48,35 @@ class DemoRemoteGuardianRepository(
     )
 
     private val _guardiansFlow = MutableStateFlow<List<RemoteGuardian>>(defaultUserGuardians)
+    private val _guardedUsersFlow = MutableStateFlow<List<RemoteGuardian>>(defaultGuardianWards)
 
     init {
-        scope.launch {
-            demoModeManager.activeProfile.collect { profile ->
-                _guardiansFlow.value = if (profile == DemoProfile.USER) {
-                    defaultUserGuardians
-                } else {
-                    defaultGuardianWards
-                }
-            }
-        }
-
         demoModeManager.registerResetListener {
-            _guardiansFlow.value = if (demoModeManager.activeProfile.value == DemoProfile.USER) {
-                defaultUserGuardians
-            } else {
-                defaultGuardianWards
-            }
+            _guardiansFlow.value = defaultUserGuardians
+            _guardedUsersFlow.value = defaultGuardianWards
         }
     }
 
     override fun getRemoteGuardiansFlow(): Flow<List<RemoteGuardian>> = _guardiansFlow.asStateFlow()
 
+    override fun getGuardedUsersFlow(): Flow<List<RemoteGuardian>> = _guardedUsersFlow.asStateFlow()
+
     override suspend fun createInvitation(): Result<GuardianInvite> = withContext(dispatcher) {
-        val randomNum = (1000..9999).random()
-        val code = "DEMO$randomNum"
+        val phrase = InvitePhraseGenerator.generatePhrase()
         val invite = GuardianInvite(
-            inviteId = "demo_inv_${System.currentTimeMillis() % 10000}",
-            code = code,
-            expiresAtMillis = System.currentTimeMillis() + (48 * 3600 * 1000L)
+            inviteId = InvitePhraseGenerator.documentIdForPhrase(phrase),
+            code = phrase,
+            expiresAtMillis = InvitePhraseGenerator.expiresAtMillis()
         )
         Result.success(invite)
     }
 
     override suspend fun acceptInvitation(code: String): Result<RemoteGuardian> = withContext(dispatcher) {
-        val cleanCode = code.trim().uppercase()
-        if (cleanCode.length < 4) {
-            return@withContext Result.failure(IllegalArgumentException("Please enter a valid invitation code."))
+        val cleanCode = InvitePhraseGenerator.normalize(code)
+        if (!InvitePhraseGenerator.isValidFormat(cleanCode) && cleanCode.length < 10) {
+            return@withContext Result.failure(
+                IllegalArgumentException("Enter a valid invitation phrase (example: BLUE-TIGER-42-MAPLE).")
+            )
         }
 
         val newGuardian = RemoteGuardian(
@@ -105,8 +97,8 @@ class DemoRemoteGuardianRepository(
     }
 
     override suspend fun revokeRelationship(relationshipId: String): Result<Unit> = withContext(dispatcher) {
-        val updated = _guardiansFlow.value.filter { it.relationshipId != relationshipId }
-        _guardiansFlow.value = updated
+        _guardiansFlow.value = _guardiansFlow.value.filter { it.relationshipId != relationshipId }
+        _guardedUsersFlow.value = _guardedUsersFlow.value.filter { it.relationshipId != relationshipId }
         Result.success(Unit)
     }
 

@@ -34,12 +34,20 @@ data class Journey(
     val startTimestamp: Long,
     val expectedArrivalTimestamp: Long,
     val completedTimestamp: Long? = null,
-    val status: JourneyStatus,
+    val status: JourneyStatus = JourneyStatus.ACTIVE,
     val lastCheckInTimestamp: Long? = null,
     val checkInCount: Int = 0,
     val checkInHistory: List<Long> = emptyList(),
-    val createdAt: Long,
-    val updatedAt: Long
+    val createdAt: Long = System.currentTimeMillis(),
+    val updatedAt: Long = System.currentTimeMillis(),
+    val isMonitoringActive: Boolean = false,
+    val lastLatitude: Double? = null,
+    val lastLongitude: Double? = null,
+    val lastLocationTimestamp: Long? = null,
+    val overdueSafetyCheckTimestamp: Long? = null,
+    val safetyCheckAcknowledged: Boolean = false,
+    val overdueEscalationDeadline: Long? = null,
+    val overdueEscalationAttempted: Boolean = false
 ) {
     /** True if the journey has reached a permanent terminal status (COMPLETED or CANCELLED). */
     val isTerminal: Boolean
@@ -80,6 +88,24 @@ data class Journey(
     fun isOverdue(nowMillis: Long = System.currentTimeMillis()): Boolean {
         return getEffectiveStatus(nowMillis) == JourneyStatus.OVERDUE
     }
+
+    /** True if overdue and awaiting user safety check confirmation. */
+    val isSafetyCheckPending: Boolean
+        get() = isOverdue() && !safetyCheckAcknowledged && !isTerminal
+
+    /** Milliseconds remaining until automatic overdue SOS escalation dispatch. */
+    fun escalationRemainingMillis(nowMillis: Long = System.currentTimeMillis()): Long {
+        val deadline = overdueEscalationDeadline ?: return 0L
+        if (safetyCheckAcknowledged || isTerminal) return 0L
+        return (deadline - nowMillis).coerceAtLeast(0L)
+    }
+
+    /** True if last tracked location was updated within the last 3 minutes. */
+    val isLocationFresh: Boolean
+        get() {
+            val ts = lastLocationTimestamp ?: return false
+            return ts > 0L && (System.currentTimeMillis() - ts) < 3 * 60 * 1000L
+        }
 
     /** Display title falling back to destination description if title is not provided. */
     val displayTitle: String

@@ -36,7 +36,10 @@ data class Guardian(
     val createdAt: Long = System.currentTimeMillis(),
     val updatedAt: Long = System.currentTimeMillis(),
     val verifiedAt: Long? = null,
-    val verificationState: GuardianVerificationState = if (isVerified) GuardianVerificationState.VERIFIED else GuardianVerificationState.UNVERIFIED
+    val verificationState: GuardianVerificationState = if (isVerified) GuardianVerificationState.VERIFIED else GuardianVerificationState.UNVERIFIED,
+    val isSosEnabled: Boolean = true,
+    /** Opt-in for automatic low/critical battery SMS. Defaults OFF — never assumed from SOS. */
+    val isBatteryAlertEnabled: Boolean = false
 )
 
 /**

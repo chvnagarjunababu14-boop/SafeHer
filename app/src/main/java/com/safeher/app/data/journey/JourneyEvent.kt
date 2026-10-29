@@ -13,6 +13,9 @@ enum class JourneyEventType {
     CHECK_IN,
     ETA_EXTENDED,
     OVERDUE_OBSERVED,
+    OVERDUE_SAFETY_CHECK_SENT,
+    SAFETY_ACKNOWLEDGED,
+    OVERDUE_ESCALATION_SOS,
     COMPLETED,
     CANCELLED
 }
@@ -39,6 +42,9 @@ data class JourneyEvent(
             JourneyEventType.CHECK_IN -> "Local Check-in Recorded"
             JourneyEventType.ETA_EXTENDED -> "Expected Arrival Extended"
             JourneyEventType.OVERDUE_OBSERVED -> "Marked Overdue"
+            JourneyEventType.OVERDUE_SAFETY_CHECK_SENT -> "Safety Check Sent"
+            JourneyEventType.SAFETY_ACKNOWLEDGED -> "User Confirmed Safe"
+            JourneyEventType.OVERDUE_ESCALATION_SOS -> "Overdue SOS Triggered"
             JourneyEventType.COMPLETED -> "Arrived Safely"
             JourneyEventType.CANCELLED -> "Journey Cancelled"
         }
@@ -50,6 +56,9 @@ data class JourneyEvent(
             JourneyEventType.CHECK_IN -> metadata ?: "Safety confirmed locally on device. No guardian alerts transmitted."
             JourneyEventType.ETA_EXTENDED -> metadata ?: "Expected arrival time was extended by the user."
             JourneyEventType.OVERDUE_OBSERVED -> "Observed by SafeHer app when expected arrival time elapsed. (Local observation; not verified external data)"
+            JourneyEventType.OVERDUE_SAFETY_CHECK_SENT -> "Prompted user with a 5-minute safety confirmation window."
+            JourneyEventType.SAFETY_ACKNOWLEDGED -> "User confirmed they are safe. Automatic SOS escalation cancelled."
+            JourneyEventType.OVERDUE_ESCALATION_SOS -> metadata ?: "Emergency SOS alerts sent to guardians after safety check timed out or help requested."
             JourneyEventType.COMPLETED -> "Safely arrived and ended the journey."
             JourneyEventType.CANCELLED -> "Journey cancelled by user."
         }

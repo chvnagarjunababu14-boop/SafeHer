@@ -127,6 +127,9 @@ class FirebaseAuthRepository(
 
             val user = firebaseUser?.toAuthUser()
             if (user != null) {
+                try {
+                    com.safeher.app.data.session.UserSessionManager.getInstance(context).markAsNewRegistration(user.uid)
+                } catch (_: Exception) {}
                 AuthResult.Success(user)
             } else {
                 AuthResult.Error("Account created, but could not load profile.")
@@ -213,6 +216,13 @@ class FirebaseAuthRepository(
                     val user = authResult.user?.toAuthUser()
 
                     if (user != null) {
+                        if (authResult.additionalUserInfo?.isNewUser == true) {
+                            val prefs = context.getSharedPreferences(
+                                com.safeher.app.data.session.UserSessionManager.PREFS_NAME,
+                                Context.MODE_PRIVATE
+                            )
+                            prefs.edit().putBoolean("new_registration_${user.uid}", true).apply()
+                        }
                         AuthResult.Success(user)
                     } else {
                         AuthResult.Error("Google Sign-In completed, but user profile could not be loaded.")

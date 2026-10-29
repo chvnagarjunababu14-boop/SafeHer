@@ -2,42 +2,173 @@ rules_version = '2';
 service cloud.firestore {
   match /databases/{database}/documents {
 
-    // Helper: is authenticated
     function isAuthenticated() {
       return request.auth != null && request.auth.uid != null;
     }
 
-    // Helper: is owner of user doc
     function isOwner(uid) {
       return isAuthenticated() && request.auth.uid == uid;
     }
 
+    function invitePath(inviteId) {
+      return /databases/$(database)/documents/invitations/$(inviteId);
+    }
+
+    function relationshipPath(relationshipId) {
+      return /databases/$(database)/documents/relationships/$(relationshipId);
+    }
+
+    // Invitation lifetime bounds enforced at create time (client clock + rules window).
+    function validInviteExpiry() {
+      return request.resource.data.expiresAt is timestamp
+        && request.resource.data.expiresAt > request.time
+        && request.resource.data.expiresAt <= request.time + duration.value(48, 'h') + duration.value(5, 'm');
+    }
+
+    function invitationCreateKeysValid() {
+      return request.resource.data.keys().hasOnly([
+        'id', 'code', 'senderUid', 'senderDisplayName', 'senderEmail',
+        'status', 'createdAt', 'expiresAt'
+      ]);
+    }
+
+    function invitationImmutableCoreUnchanged() {
+      return request.resource.data.id == resource.data.id
+        && request.resource.data.code == resource.data.code
+        && request.resource.data.senderUid == resource.data.senderUid
+        && request.resource.data.senderDisplayName == resource.data.senderDisplayName
+        && request.resource.data.senderEmail == resource.data.senderEmail
+        && request.resource.data.createdAt == resource.data.createdAt
+        && request.resource.data.expiresAt == resource.data.expiresAt;
+    }
+
+    function relationshipCreateKeysValid() {
+      return request.resource.data.keys().hasOnly([
+        'id', 'senderUid', 'senderDisplayName', 'senderEmail',
+        'guardianUid', 'guardianDisplayName', 'guardianEmail',
+        'status', 'createdAt', 'sourceInviteId'
+      ]);
+    }
+
     // User profile documents
     match /users/{uid} {
-      allow read: if isAuthenticated();
-      allow create, update: if isOwner(uid) &&
+      allow read: if isOwner(uid);
+      allow create: if isOwner(uid) &&
+        !request.resource.data.keys().hasAny(['isVerified', 'role', 'admin']);
+      allow update: if isOwner(uid) &&
         !request.resource.data.diff(resource.data).affectedKeys().hasAny(['isVerified', 'role', 'admin']);
       allow delete: if false;
     }
 
-    // Invitations: Handled entirely via trusted Cloud Functions
-    // Direct client reads and writes are blocked to prevent token enumeration & forgery.
+    /**
+     * Word-phrase invitations (Firestore-only, Spark-compatible).
+     *
+     * Document ID MUST be SHA-256 hex of the normalized phrase so claimants can
+     * resolve by knowledge of the phrase without collection enumeration.
+     * List is restricted to the invitation owner. Unauthenticated access denied.
+     * App-level rate limiting is NOT available in Security Rules.
+     */
     match /invitations/{inviteId} {
-      allow read, write: if false;
-    }
-
-    // Relationships: Created and revoked strictly through trusted Cloud Functions
-    // Read permitted only for participants in the relationship
-    match /relationships/{relationshipId} {
-      allow read: if isAuthenticated() && (
+      // Non-existent gets must succeed so clients can collision-check phrase hashes.
+      allow get: if isAuthenticated() && (
+        resource == null ||
         resource.data.senderUid == request.auth.uid ||
-        resource.data.guardianUid == request.auth.uid
+        // Claimant path: knowledge of inviteId (== phrase hash) required
+        resource.data.status == 'PENDING'
       );
-      allow write: if false;
+
+      allow list: if isAuthenticated()
+        && resource.data.senderUid == request.auth.uid;
+
+      allow create: if isAuthenticated()
+        && invitationCreateKeysValid()
+        && request.resource.data.id == inviteId
+        && request.resource.data.senderUid == request.auth.uid
+        && request.resource.data.status == 'PENDING'
+        && request.resource.data.code is string
+        && request.resource.data.code.size() >= 10
+        && request.resource.data.code.size() <= 64
+        && request.resource.data.createdAt == request.time
+        && validInviteExpiry()
+        && request.resource.data.senderDisplayName is string
+        && request.resource.data.senderEmail is string;
+
+      // Claim: PENDING -> ACCEPTED by authenticated non-owner
+      allow update: if isAuthenticated()
+        && invitationImmutableCoreUnchanged()
+        && resource.data.status == 'PENDING'
+        && resource.data.expiresAt > request.time
+        && request.resource.data.status == 'ACCEPTED'
+        && request.resource.data.acceptedByUid == request.auth.uid
+        && request.auth.uid != resource.data.senderUid
+        && request.resource.data.keys().hasOnly([
+          'id', 'code', 'senderUid', 'senderDisplayName', 'senderEmail',
+          'status', 'createdAt', 'expiresAt', 'acceptedByUid', 'acceptedAt'
+        ])
+        && request.resource.data.acceptedAt == request.time;
+
+      // Owner revoke of unused pending invite
+      allow update: if isAuthenticated()
+        && invitationImmutableCoreUnchanged()
+        && resource.data.senderUid == request.auth.uid
+        && resource.data.status == 'PENDING'
+        && request.resource.data.status == 'REVOKED'
+        && request.resource.data.keys().hasOnly([
+          'id', 'code', 'senderUid', 'senderDisplayName', 'senderEmail',
+          'status', 'createdAt', 'expiresAt', 'revokedAt', 'revokedBy'
+        ])
+        && request.resource.data.revokedBy == request.auth.uid
+        && request.resource.data.revokedAt == request.time;
+
+      allow delete: if false;
     }
 
-    // SOS Alerts: Created strictly through trusted Cloud Functions
-    // Read permitted only for the sender or explicit authorized recipients
+    /**
+     * Relationships may be created only in the same atomic write as a successful
+     * invitation claim (validated via getAfter on sourceInviteId).
+     * Participants may revoke. Alerts/SOS remain Functions-backed and client-deny.
+     */
+    match /relationships/{relationshipId} {
+      // Only active relationships authorize participant reads. Revocation drops future access.
+      allow read: if isAuthenticated()
+        && resource.data.status == 'ACTIVE'
+        && (
+          resource.data.senderUid == request.auth.uid ||
+          resource.data.guardianUid == request.auth.uid
+        );
+
+      allow create: if isAuthenticated()
+        && relationshipCreateKeysValid()
+        && request.resource.data.id == relationshipId
+        && request.resource.data.guardianUid == request.auth.uid
+        && request.resource.data.senderUid is string
+        && request.resource.data.senderUid != request.auth.uid
+        && request.resource.data.status == 'ACTIVE'
+        && request.resource.data.createdAt == request.time
+        && request.resource.data.sourceInviteId is string
+        && relationshipId == request.resource.data.senderUid + '_' + request.auth.uid
+        && getAfter(invitePath(request.resource.data.sourceInviteId)).data.status == 'ACCEPTED'
+        && getAfter(invitePath(request.resource.data.sourceInviteId)).data.acceptedByUid == request.auth.uid
+        && getAfter(invitePath(request.resource.data.sourceInviteId)).data.senderUid == request.resource.data.senderUid;
+
+      allow update: if isAuthenticated()
+        && (resource.data.senderUid == request.auth.uid || resource.data.guardianUid == request.auth.uid)
+        && resource.data.status == 'ACTIVE'
+        && request.resource.data.status == 'REVOKED'
+        && request.resource.data.senderUid == resource.data.senderUid
+        && request.resource.data.guardianUid == resource.data.guardianUid
+        && request.resource.data.id == resource.data.id
+        && (
+          !('sourceInviteId' in resource.data) ||
+          request.resource.data.sourceInviteId == resource.data.sourceInviteId
+        )
+        && request.resource.data.revokedBy == request.auth.uid
+        && request.resource.data.revokedAt == request.time;
+
+      allow delete: if false;
+    }
+
+    // SOS Alerts: still Cloud Functions only (unchanged privacy model)
     match /alerts/{alertId} {
       allow read: if isAuthenticated() && (
         resource.data.senderUid == request.auth.uid ||
@@ -45,8 +176,6 @@ service cloud.firestore {
       );
       allow write: if false;
 
-      // Sensitive subcollection: Location coordinates
-      // Read permitted only after alert-level authorization
       match /sensitive/location {
         allow read: if isAuthenticated() && (
           get(/databases/$(database)/documents/alerts/$(alertId)).data.senderUid == request.auth.uid ||
@@ -55,8 +184,6 @@ service cloud.firestore {
         allow write: if false;
       }
 
-      // Delivery Status: Updated strictly via backend Cloud Functions
-      // Read permitted for sender or the specific guardian recipient
       match /delivery_status/{guardianUid} {
         allow read: if isAuthenticated() && (
           get(/databases/$(database)/documents/alerts/$(alertId)).data.senderUid == request.auth.uid ||
@@ -66,7 +193,6 @@ service cloud.firestore {
       }
     }
 
-    // Deny all other collections by default
     match /{document=**} {
       allow read, write: if false;
     }

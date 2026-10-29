@@ -10,18 +10,17 @@ import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.Spacer
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
+import androidx.compose.foundation.layout.heightIn
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.shape.CircleShape
-import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.filled.CheckCircle
 import androidx.compose.material.icons.filled.Lightbulb
 import androidx.compose.material.icons.filled.Share
-import androidx.compose.material3.Card
-import androidx.compose.material3.CardDefaults
 import androidx.compose.material3.Icon
 import androidx.compose.material3.MaterialTheme
+import androidx.compose.material3.Surface
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
 import androidx.compose.ui.Alignment
@@ -35,9 +34,10 @@ import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
-import androidx.compose.ui.unit.sp
 import com.safeher.app.R
+import com.safeher.app.ui.components.SectionHeader
 import com.safeher.app.ui.theme.SafeHerBorderLavender
+import com.safeher.app.ui.theme.SafeHerDimens
 import com.safeher.app.ui.theme.SafeHerPinkAccent
 import com.safeher.app.ui.theme.SafeHerPinkContainer
 import com.safeher.app.ui.theme.SafeHerPurpleContainer
@@ -57,42 +57,15 @@ fun QuickActionsRow(
     Column(
         modifier = modifier
             .fillMaxWidth()
-            .padding(horizontal = 20.dp, vertical = 6.dp)
+            .padding(horizontal = SafeHerDimens.screenHorizontal, vertical = SafeHerDimens.spaceXxs)
     ) {
+        SectionHeader(title = stringResource(R.string.quick_actions_title))
+
+        Spacer(modifier = Modifier.height(SafeHerDimens.spaceSm))
+
         Row(
             modifier = Modifier.fillMaxWidth(),
-            horizontalArrangement = Arrangement.SpaceBetween,
-            verticalAlignment = Alignment.CenterVertically
-        ) {
-            Text(
-                text = stringResource(R.string.quick_actions_title),
-                style = MaterialTheme.typography.titleMedium,
-                color = SafeHerTextPrimary,
-                fontWeight = FontWeight.Bold
-            )
-
-            Box(
-                modifier = Modifier
-                    .clip(RoundedCornerShape(8.dp))
-                    .background(SafeHerPurpleContainer)
-                    .padding(horizontal = 8.dp, vertical = 2.dp)
-            ) {
-                Text(
-                    text = "Demo",
-                    style = MaterialTheme.typography.labelSmall,
-                    color = SafeHerPurplePrimary,
-                    fontSize = 10.sp,
-                    fontWeight = FontWeight.Bold
-                )
-            }
-        }
-
-        Spacer(modifier = Modifier.height(10.dp))
-
-        // Responsive 3-column row: fits all device widths without horizontal overflow
-        Row(
-            modifier = Modifier.fillMaxWidth(),
-            horizontalArrangement = Arrangement.spacedBy(8.dp)
+            horizontalArrangement = Arrangement.spacedBy(SafeHerDimens.spaceXs)
         ) {
             QuickActionItem(
                 title = stringResource(R.string.quick_share_status),
@@ -137,25 +110,24 @@ private fun QuickActionItem(
     onClick: () -> Unit,
     modifier: Modifier = Modifier
 ) {
-    Card(
+    Surface(
         modifier = modifier
-            .clip(RoundedCornerShape(16.dp))
-            .border(1.dp, SafeHerBorderLavender, RoundedCornerShape(16.dp))
+            .heightIn(min = SafeHerDimens.touchMin * 2)
+            .clip(MaterialTheme.shapes.medium)
+            .border(1.dp, SafeHerBorderLavender, MaterialTheme.shapes.medium)
             .clickable(
                 role = Role.Button,
                 onClickLabel = title,
                 onClick = onClick
             ),
-        shape = RoundedCornerShape(16.dp),
-        colors = CardDefaults.cardColors(
-            containerColor = SafeHerSurfaceWhite
-        ),
-        elevation = CardDefaults.cardElevation(defaultElevation = 1.dp)
+        shape = MaterialTheme.shapes.medium,
+        color = SafeHerSurfaceWhite,
+        shadowElevation = SafeHerDimens.elevationLow
     ) {
         Column(
             modifier = Modifier
                 .fillMaxWidth()
-                .padding(10.dp),
+                .padding(SafeHerDimens.spaceXs),
             horizontalAlignment = Alignment.CenterHorizontally
         ) {
             Box(
@@ -169,30 +141,28 @@ private fun QuickActionItem(
                     imageVector = icon,
                     contentDescription = null,
                     tint = iconTint,
-                    modifier = Modifier.size(18.dp)
+                    modifier = Modifier.size(SafeHerDimens.iconSm)
                 )
             }
 
-            Spacer(modifier = Modifier.height(8.dp))
+            Spacer(modifier = Modifier.height(SafeHerDimens.spaceXs))
 
             Text(
                 text = title,
                 style = MaterialTheme.typography.titleSmall,
                 color = SafeHerTextPrimary,
                 fontWeight = FontWeight.Bold,
-                fontSize = 12.sp,
                 maxLines = 1,
                 overflow = TextOverflow.Ellipsis,
                 textAlign = TextAlign.Center
             )
 
-            Spacer(modifier = Modifier.height(2.dp))
+            Spacer(modifier = Modifier.height(SafeHerDimens.spaceXxxs))
 
             Text(
                 text = subtitle,
                 style = MaterialTheme.typography.bodySmall,
                 color = SafeHerTextMuted,
-                fontSize = 10.sp,
                 maxLines = 1,
                 overflow = TextOverflow.Ellipsis,
                 textAlign = TextAlign.Center

@@ -513,6 +513,12 @@ class ContactsViewModel(
         _uiState.update { it.copy(verificationInfo = null) }
     }
 
+    fun toggleSosEnabled(guardianId: Long, isEnabled: Boolean) {
+        scope.launch(dispatcher) {
+            repository.updateSosEnabled(guardianId, isEnabled)
+        }
+    }
+
     fun clearFeedbackMessage() {
         _uiState.update { it.copy(feedbackMessage = null, errorMessage = null) }
     }

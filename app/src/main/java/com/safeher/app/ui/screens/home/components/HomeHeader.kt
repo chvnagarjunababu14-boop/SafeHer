@@ -24,15 +24,17 @@ import androidx.compose.runtime.Composable
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
+import androidx.compose.ui.graphics.Brush
 import androidx.compose.ui.res.stringResource
 import androidx.compose.ui.semantics.Role
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
-import androidx.compose.ui.unit.sp
 import com.safeher.app.R
+import com.safeher.app.ui.components.RoleBadge
+import com.safeher.app.ui.components.SafeHerRoleTone
 import com.safeher.app.ui.theme.SafeHerBorderLavender
+import com.safeher.app.ui.theme.SafeHerDimens
 import com.safeher.app.ui.theme.SafeHerPinkAccent
-import com.safeher.app.ui.theme.SafeHerPurpleDark
 import com.safeher.app.ui.theme.SafeHerPurplePrimary
 import com.safeher.app.ui.theme.SafeHerSurfaceWhite
 import com.safeher.app.ui.theme.SafeHerTextPrimary
@@ -41,94 +43,85 @@ import com.safeher.app.ui.theme.SafeHerTextSecondary
 @Composable
 fun HomeHeader(
     onProfileClick: () -> Unit,
-    modifier: Modifier = Modifier
+    modifier: Modifier = Modifier,
+    showRoleBadge: Boolean = true
 ) {
     Row(
         modifier = modifier
             .fillMaxWidth()
             .statusBarsPadding()
-            .padding(horizontal = 20.dp, vertical = 8.dp),
+            .padding(horizontal = SafeHerDimens.screenHorizontal, vertical = SafeHerDimens.spaceXs),
         horizontalArrangement = Arrangement.SpaceBetween,
         verticalAlignment = Alignment.CenterVertically
     ) {
-        Row(
-            verticalAlignment = Alignment.CenterVertically
-        ) {
-            // Shield brand mark
+        Row(verticalAlignment = Alignment.CenterVertically) {
             Box(
                 modifier = Modifier
-                    .size(42.dp)
+                    .size(SafeHerDimens.brandMark)
                     .clip(CircleShape)
-                    .background(SafeHerSurfaceWhite)
-                    .border(1.dp, SafeHerBorderLavender, CircleShape),
+                    .background(
+                        Brush.linearGradient(
+                            listOf(SafeHerPurplePrimary, SafeHerPinkAccent)
+                        )
+                    ),
                 contentAlignment = Alignment.Center
             ) {
                 Icon(
                     imageVector = Icons.Default.Shield,
                     contentDescription = stringResource(R.string.app_name),
-                    tint = SafeHerPurplePrimary,
-                    modifier = Modifier.size(24.dp)
+                    tint = SafeHerSurfaceWhite,
+                    modifier = Modifier.size(SafeHerDimens.iconMd)
                 )
             }
 
-            Spacer(modifier = Modifier.width(12.dp))
+            Spacer(modifier = Modifier.width(SafeHerDimens.spaceSm))
 
             Column {
-                Row(
-                    verticalAlignment = Alignment.CenterVertically
-                ) {
-                    Text(
-                        text = stringResource(R.string.app_name),
-                        style = MaterialTheme.typography.titleMedium,
-                        color = SafeHerPurpleDark,
-                        fontWeight = FontWeight.Bold,
-                        letterSpacing = (-0.3).sp
-                    )
-                    Spacer(modifier = Modifier.width(6.dp))
-                    Box(
-                        modifier = Modifier
-                            .size(6.dp)
-                            .clip(CircleShape)
-                            .background(SafeHerPinkAccent)
-                    )
-                }
-
-                // Neutral non-fabricated greeting
+                Text(
+                    text = stringResource(R.string.app_name),
+                    style = MaterialTheme.typography.titleLarge,
+                    color = SafeHerTextPrimary,
+                    fontWeight = FontWeight.Bold
+                )
                 Text(
                     text = stringResource(R.string.greeting_user),
-                    style = MaterialTheme.typography.bodyMedium,
-                    color = SafeHerTextPrimary,
-                    fontWeight = FontWeight.SemiBold
+                    style = MaterialTheme.typography.bodySmall,
+                    color = SafeHerTextSecondary
                 )
             }
         }
 
-        // Profile / Settings Action Button (Min 48dp touch target)
-        Box(
-            modifier = Modifier
-                .size(48.dp)
-                .clip(CircleShape)
-                .clickable(
-                    role = Role.Button,
-                    onClickLabel = stringResource(R.string.profile_avatar_desc),
-                    onClick = onProfileClick
-                ),
-            contentAlignment = Alignment.Center
-        ) {
+        Row(verticalAlignment = Alignment.CenterVertically) {
+            if (showRoleBadge) {
+                RoleBadge(tone = SafeHerRoleTone.USER)
+                Spacer(modifier = Modifier.width(SafeHerDimens.spaceXs))
+            }
             Box(
                 modifier = Modifier
-                    .size(40.dp)
+                    .size(SafeHerDimens.touchMin)
                     .clip(CircleShape)
-                    .background(SafeHerSurfaceWhite)
-                    .border(1.5.dp, SafeHerPurplePrimary, CircleShape),
+                    .clickable(
+                        role = Role.Button,
+                        onClickLabel = stringResource(R.string.profile_avatar_desc),
+                        onClick = onProfileClick
+                    ),
                 contentAlignment = Alignment.Center
             ) {
-                Icon(
-                    imageVector = Icons.Default.Person,
-                    contentDescription = stringResource(R.string.profile_avatar_desc),
-                    tint = SafeHerPurplePrimary,
-                    modifier = Modifier.size(22.dp)
-                )
+                Box(
+                    modifier = Modifier
+                        .size(40.dp)
+                        .clip(CircleShape)
+                        .background(SafeHerSurfaceWhite)
+                        .border(1.5.dp, SafeHerBorderLavender, CircleShape),
+                    contentAlignment = Alignment.Center
+                ) {
+                    Icon(
+                        imageVector = Icons.Default.Person,
+                        contentDescription = stringResource(R.string.profile_avatar_desc),
+                        tint = SafeHerPurplePrimary,
+                        modifier = Modifier.size(SafeHerDimens.iconMd)
+                    )
+                }
             }
         }
     }

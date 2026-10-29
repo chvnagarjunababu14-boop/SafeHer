@@ -16,8 +16,14 @@ import kotlinx.coroutines.flow.asStateFlow
  */
 class DemoModeManager(
     private val prefs: SharedPreferences,
-    defaultMode: Boolean? = null
+    private val explicitAllowedMode: Boolean? = null
 ) {
+
+    private val isDemoAllowed: Boolean = explicitAllowedMode ?: try {
+        BuildConfig.IS_DEMO_DEFAULT
+    } catch (_: Throwable) {
+        false
+    }
 
     private val _isDemoMode: MutableStateFlow<Boolean>
     val isDemoMode: StateFlow<Boolean>
@@ -28,40 +34,36 @@ class DemoModeManager(
     private val resetListeners = mutableListOf<() -> Unit>()
 
     init {
-        // Initial state determined by build config or user toggle in prefs
-        val default = defaultMode ?: try {
-            BuildConfig.IS_DEMO_DEFAULT
-        } catch (_: Throwable) {
-            true
+        // Strict separation: Demo Mode is only available in the demo flavor / test environments
+        val initialDemoMode = if (isDemoAllowed) {
+            val default = explicitAllowedMode ?: true
+            prefs.getBoolean(KEY_IS_DEMO_MODE, default)
+        } else {
+            // In production builds, clear any legacy demo flag in prefs and strictly disable demo mode
+            try {
+                prefs.edit().remove(KEY_IS_DEMO_MODE).apply()
+            } catch (_: Throwable) {
+                // Ignore SharedPreferences exceptions
+            }
+            false
         }
-        val initialDemoMode = prefs.getBoolean(KEY_IS_DEMO_MODE, default)
         _isDemoMode = MutableStateFlow(initialDemoMode)
         isDemoMode = _isDemoMode.asStateFlow()
 
-        val savedProfileName = prefs.getString(KEY_ACTIVE_PROFILE, DemoProfile.USER.name)
-        val initialProfile = try {
-            DemoProfile.valueOf(savedProfileName ?: DemoProfile.USER.name)
-        } catch (_: Exception) {
-            DemoProfile.USER
-        }
-        _activeProfile = MutableStateFlow(initialProfile)
+        _activeProfile = MutableStateFlow(DemoProfile.USER)
         activeProfile = _activeProfile.asStateFlow()
     }
 
     /**
-     * Toggles Demo Mode on or off explicitly.
+     * Toggles Demo Mode on or off explicitly (only allowed in demo flavor / test environments).
      */
     fun setDemoMode(enabled: Boolean) {
+        if (!isDemoAllowed) {
+            _isDemoMode.value = false
+            return
+        }
         prefs.edit().putBoolean(KEY_IS_DEMO_MODE, enabled).apply()
         _isDemoMode.value = enabled
-    }
-
-    /**
-     * Switches between fictional Demo User and Demo Guardian profiles.
-     */
-    fun switchProfile(profile: DemoProfile) {
-        prefs.edit().putString(KEY_ACTIVE_PROFILE, profile.name).apply()
-        _activeProfile.value = profile
     }
 
     /**
@@ -78,7 +80,6 @@ class DemoModeManager(
      * the Room database (local guardians, journeys, event timeline).
      */
     fun resetDemoData() {
-        switchProfile(DemoProfile.USER)
         val listenersCopy: List<() -> Unit>
         synchronized(resetListeners) {
             listenersCopy = resetListeners.toList()
@@ -89,7 +90,6 @@ class DemoModeManager(
     companion object {
         private const val PREFS_NAME = "safeher_demo_mode_prefs"
         private const val KEY_IS_DEMO_MODE = "key_is_demo_mode"
-        private const val KEY_ACTIVE_PROFILE = "key_active_profile"
 
         @Volatile
         private var instance: DemoModeManager? = null
@@ -106,7 +106,6 @@ class DemoModeManager(
         fun createForTesting(prefs: SharedPreferences, initialDemoMode: Boolean = true): DemoModeManager {
             val manager = DemoModeManager(prefs, initialDemoMode)
             manager.setDemoMode(initialDemoMode)
-            manager.switchProfile(DemoProfile.USER)
             return manager
         }
     }

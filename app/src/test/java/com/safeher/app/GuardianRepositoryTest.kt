@@ -23,16 +23,100 @@ class FakeDao : GuardianDao {
     override fun getGuardianByPhoneNumber(phoneNumber: String): GuardianEntity? =
         storage.find { it.phoneNumber == phoneNumber }
 
+    override fun getGuardiansForUser(userId: String): List<GuardianEntity> =
+        storage.filter { it.userId == userId }
+
+    override fun getGuardianCountForUser(userId: String): Int =
+        storage.count { it.userId == userId }
+
+    override fun getGuardianByIdForUser(id: Long, userId: String): GuardianEntity? =
+        storage.find { it.id == id && it.userId == userId }
+
+    override fun getGuardianByPhoneNumberForUser(phoneNumber: String, userId: String): GuardianEntity? =
+        storage.find { it.phoneNumber == phoneNumber && it.userId == userId }
+
+    override fun deleteByIdForUser(id: Long, userId: String): Int =
+        if (storage.removeIf { it.id == id && it.userId == userId }) 1 else 0
+
+    override fun getUnassignedGuardians(): List<GuardianEntity> =
+        storage.filter { it.userId == null }
+
+    override fun getUnassignedGuardianCount(): Int =
+        storage.count { it.userId == null }
+
+    override fun assignUnassignedGuardiansToUser(userId: String): Int {
+        var count = 0
+        storage.forEachIndexed { idx, entity ->
+            if (entity.userId == null) {
+                storage[idx] = GuardianEntity(
+                    entity.id,
+                    userId,
+                    entity.name,
+                    entity.phoneNumber,
+                    entity.relationship,
+                    entity.isVerified,
+                    entity.createdAt,
+                    entity.updatedAt,
+                    entity.verifiedAt,
+                    entity.isSosEnabled,
+                    entity.isBatteryAlertEnabled
+                )
+                count++
+            }
+        }
+        return count
+    }
+
+    override fun getSosEnabledGuardiansForUser(userId: String): List<GuardianEntity> =
+        storage.filter { it.userId == userId && it.isSosEnabled }
+
+    override fun updateSosEnabledForUser(id: Long, userId: String, isSosEnabled: Boolean, updatedAt: Long): Int {
+        val idx = storage.indexOfFirst { it.id == id && it.userId == userId }
+        if (idx != -1) {
+            storage[idx].isSosEnabled = isSosEnabled
+            storage[idx].updatedAt = updatedAt
+            return 1
+        }
+        return 0
+    }
+
+    override fun getAllSosEnabledGuardians(): List<GuardianEntity> =
+        storage.filter { it.isSosEnabled }
+
+    override fun getBatteryAlertEnabledGuardiansForUser(userId: String): List<GuardianEntity> =
+        storage.filter { it.userId == userId && it.isBatteryAlertEnabled }
+
+    override fun updateBatteryAlertEnabledForUser(
+        id: Long,
+        userId: String,
+        isBatteryAlertEnabled: Boolean,
+        updatedAt: Long
+    ): Int {
+        val idx = storage.indexOfFirst { it.id == id && it.userId == userId }
+        if (idx != -1) {
+            storage[idx].isBatteryAlertEnabled = isBatteryAlertEnabled
+            storage[idx].updatedAt = updatedAt
+            return 1
+        }
+        return 0
+    }
+
+    override fun getAllBatteryAlertEnabledGuardians(): List<GuardianEntity> =
+        storage.filter { it.isBatteryAlertEnabled }
+
     override fun insert(guardian: GuardianEntity): Long {
         val assigned = GuardianEntity(
             idCounter++,
+            guardian.userId,
             guardian.name,
             guardian.phoneNumber,
             guardian.relationship,
             guardian.isVerified,
             guardian.createdAt,
             guardian.updatedAt,
-            guardian.verifiedAt
+            guardian.verifiedAt,
+            guardian.isSosEnabled,
+            guardian.isBatteryAlertEnabled
         )
         storage.add(assigned)
         return assigned.id

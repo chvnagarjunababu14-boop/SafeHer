@@ -45,7 +45,12 @@ fun FeaturePreviewDialog(
     activeDialog: ActiveDialog,
     onDismiss: () -> Unit
 ) {
-    if (activeDialog == ActiveDialog.None || activeDialog == ActiveDialog.EmergencySos) return
+    if (activeDialog == ActiveDialog.None ||
+        activeDialog == ActiveDialog.EmergencySos ||
+        activeDialog == ActiveDialog.DirectSos ||
+        activeDialog == ActiveDialog.SosSettings ||
+        activeDialog == ActiveDialog.AccessibleSosConfirmation
+    ) return
 
     val content = when (activeDialog) {
         ActiveDialog.SosSimulation -> DialogContent(
@@ -103,6 +108,9 @@ fun FeaturePreviewDialog(
             isEmergencyDemo = false
         )
         ActiveDialog.EmergencySos,
+        ActiveDialog.DirectSos,
+        ActiveDialog.SosSettings,
+        ActiveDialog.AccessibleSosConfirmation,
         ActiveDialog.None -> DialogContent("", "", "", false)
     }
 

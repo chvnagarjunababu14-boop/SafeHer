@@ -67,6 +67,7 @@ import com.safeher.app.ui.screens.account.AccountViewModel
 import com.safeher.app.ui.screens.contacts.ContactsScreen
 import com.safeher.app.ui.screens.guardian.GuardianAlertDetailScreen
 import com.safeher.app.ui.screens.guardian.GuardianAlertDetailViewModel
+import com.safeher.app.ui.screens.home.components.DirectSosDialog
 import com.safeher.app.ui.screens.home.components.EmergencySosDialog
 import com.safeher.app.ui.screens.home.components.FeaturePreviewDialog
 import com.safeher.app.ui.screens.home.components.HomeHeader
@@ -75,6 +76,7 @@ import com.safeher.app.ui.screens.home.components.SafeHerBottomBar
 import com.safeher.app.ui.screens.home.components.SafetyHeroBanner
 import com.safeher.app.ui.screens.home.components.SafetyShortcutCard
 import com.safeher.app.ui.screens.home.components.SosButtonControl
+import com.safeher.app.ui.screens.home.components.SosSettingsDialog
 import com.safeher.app.ui.screens.home.components.TabPlaceholderScreen
 import com.safeher.app.ui.screens.journeys.JourneysScreen
 import com.safeher.app.ui.screens.map.MapScreen
@@ -133,7 +135,9 @@ fun HomeScreen() {
                     val authRepo = RepositoryProvider.getAuthRepository(context)
                     val remoteGuardianRepo = RepositoryProvider.getRemoteGuardianRepository(context)
                     val remoteSosRepo = RepositoryProvider.getRemoteSosRepository(context)
-                    val demoModeManager = RepositoryProvider.getDemoModeManager(context)
+                    val demoModeManager = if (com.safeher.app.BuildConfig.IS_DEMO_DEFAULT) RepositoryProvider.getDemoModeManager(context) else null
+                    val directSosManager = RepositoryProvider.getDirectSosManager(context)
+                    val sosPrefsRepo = RepositoryProvider.getSosPreferencesRepository(context)
                     @Suppress("UNCHECKED_CAST")
                     return HomeViewModel(
                         guardianRepository = guardianRepo,
@@ -142,7 +146,9 @@ fun HomeScreen() {
                         authRepository = authRepo,
                         remoteGuardianRepository = remoteGuardianRepo,
                         remoteSosRepository = remoteSosRepo,
-                        demoModeManager = demoModeManager
+                        demoModeManager = demoModeManager,
+                        directSosManager = directSosManager,
+                        sosPreferencesRepository = sosPrefsRepo
                     ) as T
                 }
             }
@@ -196,7 +202,25 @@ fun HomeScreen() {
             } catch (e: Exception) {
                 viewModel.onComposerFailed("Unable to open messaging app: ${e.localizedMessage ?: "Unknown error"}")
             }
-        }
+        },
+        onAccessibleSosClick = { viewModel.openAccessibleSosConfirmation() },
+        onOpenSosSettingsClick = { viewModel.openSosSettings() },
+        onCancelDirectSosCountdown = { viewModel.cancelDirectSosCountdown() },
+        onSendDirectSosImmediately = { viewModel.sendDirectSosImmediately() },
+        onOpenManualSmsFallback = { viewModel.openManualSmsFallback() },
+        onOpenSosSettings = { viewModel.openSosSettings() },
+        onDismissDirectSos = { viewModel.dismissDirectSos() },
+        onConsentChanged = { viewModel.setConsentGiven(it) },
+        onDirectSmsEnabledChanged = { viewModel.setDirectSmsEnabled(it) },
+        onCustomMessageChanged = { viewModel.setCustomSosMessage(it) },
+        onLocationSharingChanged = { viewModel.setLocationSharingEnabled(it) },
+        onCountdownChanged = { viewModel.setCountdownDurationSeconds(it) },
+        onToggleGuardianSos = { id, enabled -> viewModel.toggleGuardianSos(id, enabled) },
+        onBatteryAlertsConsentChanged = { viewModel.setBatteryAlertsConsent(it) },
+        onBatteryAlertsEnabledChanged = { viewModel.setBatteryAlertsEnabled(it) },
+        onBatteryAlertLocationChanged = { viewModel.setBatteryAlertLocationEnabled(it) },
+        onToggleGuardianBatteryAlert = { id, enabled -> viewModel.toggleGuardianBatteryAlert(id, enabled) },
+        onConfirmAccessibleSos = { viewModel.confirmAccessibleSos() }
     )
 }
 
@@ -229,7 +253,25 @@ fun HomeScreenContent(
     onUpdateSosMessage: (String) -> Unit = {},
     onCancelSosWorkflow: () -> Unit = {},
     onCopySosMessage: () -> Unit = {},
-    onOpenMessagingApp: () -> Unit = {}
+    onOpenMessagingApp: () -> Unit = {},
+    onAccessibleSosClick: () -> Unit = {},
+    onOpenSosSettingsClick: () -> Unit = {},
+    onCancelDirectSosCountdown: () -> Unit = {},
+    onSendDirectSosImmediately: () -> Unit = {},
+    onOpenManualSmsFallback: () -> Unit = {},
+    onOpenSosSettings: () -> Unit = {},
+    onDismissDirectSos: () -> Unit = {},
+    onConsentChanged: (Boolean) -> Unit = {},
+    onDirectSmsEnabledChanged: (Boolean) -> Unit = {},
+    onCustomMessageChanged: (String) -> Unit = {},
+    onLocationSharingChanged: (Boolean) -> Unit = {},
+    onCountdownChanged: (Int) -> Unit = {},
+    onToggleGuardianSos: (Long, Boolean) -> Unit = { _, _ -> },
+    onBatteryAlertsConsentChanged: (Boolean) -> Unit = {},
+    onBatteryAlertsEnabledChanged: (Boolean) -> Unit = {},
+    onBatteryAlertLocationChanged: (Boolean) -> Unit = {},
+    onToggleGuardianBatteryAlert: (Long, Boolean) -> Unit = { _, _ -> },
+    onConfirmAccessibleSos: () -> Unit = {}
 ) {
     val context = LocalContext.current
     Scaffold(
@@ -255,8 +297,8 @@ fun HomeScreenContent(
                     .padding(paddingValues)
                     .verticalScroll(rememberScrollState())
             ) {
-                // 0. Demo Mode Indicator Banner
-                if (uiState.isDemoMode) {
+                // 0. Demo Mode Indicator Banner (Only shown in demo build flavor)
+                if (com.safeher.app.BuildConfig.IS_DEMO_DEFAULT && uiState.isDemoMode) {
                     DemoModeBanner(onOpenAccountClick = onProfileClick)
                 }
 
@@ -278,7 +320,10 @@ fun HomeScreenContent(
                     holdProgress = uiState.sosHoldProgress,
                     feedbackText = uiState.sosFeedbackText,
                     onHoldStart = onSosHoldStart,
-                    onHoldCancel = onSosHoldCancel
+                    onHoldCancel = onSosHoldCancel,
+                    onAccessibleSosClick = onAccessibleSosClick,
+                    onOpenSosSettingsClick = onOpenSosSettingsClick,
+                    isDirectSmsEnabled = uiState.sosPreferences.isDirectSmsEnabled
                 )
 
                 // 4. Safety Shortcuts Section (2x2 Grid)
@@ -287,11 +332,8 @@ fun HomeScreenContent(
                         .fillMaxWidth()
                         .padding(horizontal = 20.dp, vertical = 6.dp)
                 ) {
-                    Text(
-                        text = stringResource(R.string.shortcuts_section_title),
-                        style = MaterialTheme.typography.titleMedium,
-                        color = SafeHerTextPrimary,
-                        fontWeight = FontWeight.Bold
+                    com.safeher.app.ui.components.SectionHeader(
+                        title = stringResource(R.string.shortcuts_section_title)
                     )
 
                     Spacer(modifier = Modifier.height(10.dp))
@@ -382,9 +424,10 @@ fun HomeScreenContent(
                         override fun <T : ViewModel> create(modelClass: Class<T>): T {
                             val authRepo = RepositoryProvider.getAuthRepository(context)
                             val remoteGuardianRepo = RepositoryProvider.getRemoteGuardianRepository(context)
-                            val demoModeManager = RepositoryProvider.getDemoModeManager(context)
+                            val demoModeManager = if (com.safeher.app.BuildConfig.IS_DEMO_DEFAULT) RepositoryProvider.getDemoModeManager(context) else null
+                            val sessionManager = RepositoryProvider.getUserSessionManager(context)
                             @Suppress("UNCHECKED_CAST")
-                            return AccountViewModel(authRepo, remoteGuardianRepo, demoModeManager) as T
+                            return AccountViewModel(authRepo, remoteGuardianRepo, demoModeManager, sessionManager) as T
                         }
                     }
                 }
@@ -423,8 +466,77 @@ fun HomeScreenContent(
         onOpenMessagingApp = onOpenMessagingApp
     )
 
+    // Direct Automatic SOS Dialog (Handles Countdown, Live Dispatch, Results, and Error fallback)
+    DirectSosDialog(
+        state = uiState.directSosState,
+        onCancelCountdown = onCancelDirectSosCountdown,
+        onSendNow = onSendDirectSosImmediately,
+        onOpenManualSmsFallback = onOpenManualSmsFallback,
+        onOpenSosSettings = onOpenSosSettings,
+        onDismiss = onDismissDirectSos
+    )
+
+    // SOS Settings Dialog
+    SosSettingsDialog(
+        isOpen = uiState.activeDialog == ActiveDialog.SosSettings,
+        preferences = uiState.sosPreferences,
+        guardians = uiState.localGuardians,
+        onDismiss = onDismissDialog,
+        onConsentChanged = onConsentChanged,
+        onDirectSmsEnabledChanged = onDirectSmsEnabledChanged,
+        onCustomMessageChanged = onCustomMessageChanged,
+        onLocationSharingChanged = onLocationSharingChanged,
+        onCountdownChanged = onCountdownChanged,
+        onToggleGuardianSos = onToggleGuardianSos,
+        onBatteryAlertsConsentChanged = onBatteryAlertsConsentChanged,
+        onBatteryAlertsEnabledChanged = onBatteryAlertsEnabledChanged,
+        onBatteryAlertLocationChanged = onBatteryAlertLocationChanged,
+        onToggleGuardianBatteryAlert = onToggleGuardianBatteryAlert
+    )
+
+    // Accessible SOS Confirmation Dialog — matches confirmAccessibleSos (countdown or settings)
+    if (uiState.activeDialog == ActiveDialog.AccessibleSosConfirmation) {
+        androidx.compose.material3.AlertDialog(
+            onDismissRequest = onDismissDialog,
+            title = {
+                Text(
+                    text = stringResource(R.string.sos_quick_confirm_title),
+                    fontWeight = FontWeight.Bold,
+                    color = SafeHerSosCrimson
+                )
+            },
+            text = {
+                Text(
+                    text = stringResource(R.string.sos_quick_confirm_body),
+                    color = SafeHerTextPrimary
+                )
+            },
+            confirmButton = {
+                androidx.compose.material3.Button(
+                    onClick = onConfirmAccessibleSos,
+                    colors = androidx.compose.material3.ButtonDefaults.buttonColors(containerColor = SafeHerSosCrimson)
+                ) {
+                    Text(
+                        text = stringResource(R.string.sos_quick_confirm_action),
+                        fontWeight = FontWeight.Bold,
+                        color = Color.White
+                    )
+                }
+            },
+            dismissButton = {
+                androidx.compose.material3.OutlinedButton(onClick = onDismissDialog) {
+                    Text(stringResource(R.string.sos_cancel))
+                }
+            }
+        )
+    }
+
     // Modal dialogs & previews
-    if (uiState.activeDialog != ActiveDialog.EmergencySos) {
+    if (uiState.activeDialog != ActiveDialog.EmergencySos &&
+        uiState.activeDialog != ActiveDialog.DirectSos &&
+        uiState.activeDialog != ActiveDialog.SosSettings &&
+        uiState.activeDialog != ActiveDialog.AccessibleSosConfirmation
+    ) {
         FeaturePreviewDialog(
             activeDialog = uiState.activeDialog,
             onDismiss = onDismissDialog
@@ -568,7 +680,7 @@ private fun DemoModeBanner(
 ) {
     Card(
         colors = CardDefaults.cardColors(containerColor = com.safeher.app.ui.theme.SafeHerPurpleContainer),
-        shape = RoundedCornerShape(12.dp),
+        shape = MaterialTheme.shapes.small,
         border = BorderStroke(1.dp, com.safeher.app.ui.theme.SafeHerPurpleLight),
         modifier = modifier
             .fillMaxWidth()
@@ -579,30 +691,34 @@ private fun DemoModeBanner(
             modifier = Modifier.padding(12.dp),
             verticalAlignment = Alignment.CenterVertically
         ) {
-            Text(
-                text = "🧪",
-                fontSize = 20.sp
-            )
+            Box(
+                modifier = Modifier
+                    .size(36.dp)
+                    .clip(CircleShape)
+                    .background(com.safeher.app.ui.theme.SafeHerSurfaceWhite),
+                contentAlignment = Alignment.Center
+            ) {
+                Icon(
+                    imageVector = Icons.Default.Info,
+                    contentDescription = null,
+                    tint = com.safeher.app.ui.theme.SafeHerPurplePrimary,
+                    modifier = Modifier.size(20.dp)
+                )
+            }
             Spacer(modifier = Modifier.width(10.dp))
             Column(modifier = Modifier.weight(1f)) {
                 Text(
-                    text = "SafeHer Demo Mode Active",
+                    text = stringResource(R.string.demo_mode_title),
                     fontWeight = FontWeight.Bold,
-                    fontSize = 12.sp,
+                    style = MaterialTheme.typography.labelMedium,
                     color = com.safeher.app.ui.theme.SafeHerPurpleDark
                 )
                 Text(
-                    text = "Local simulation enabled. Tap to switch demo roles or exit.",
-                    fontSize = 11.sp,
+                    text = stringResource(R.string.demo_mode_body),
+                    style = MaterialTheme.typography.bodySmall,
                     color = com.safeher.app.ui.theme.SafeHerTextSecondary
                 )
             }
-            Icon(
-                imageVector = Icons.Default.Info,
-                contentDescription = "Demo Info",
-                tint = com.safeher.app.ui.theme.SafeHerPurplePrimary,
-                modifier = Modifier.size(18.dp)
-            )
         }
     }
 }

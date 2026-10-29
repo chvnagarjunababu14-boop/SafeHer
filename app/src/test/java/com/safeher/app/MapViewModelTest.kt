@@ -228,4 +228,42 @@ class MapViewModelTest {
         assertTrue(state is MapUiState.PermissionRequired)
         assertFalse((state as MapUiState.PermissionRequired).isPermanentlyDenied)
     }
+
+    @Test
+    fun mapConfig_zoomBoundsAreValidAndPreventWallpaperTiling() {
+        // Minimum zoom level must be at least 3.0 to prevent repeating world map wallpaper
+        assertTrue("Min zoom must be >= 3.0", com.safeher.app.ui.screens.map.MapConfig.MIN_ZOOM_LEVEL >= 3.0)
+        assertTrue("Min zoom must not restrict regional view", com.safeher.app.ui.screens.map.MapConfig.MIN_ZOOM_LEVEL <= 5.0)
+
+        // Max zoom level must support street / building level detail
+        assertTrue("Max zoom must be >= 19.0 for OpenStreetMap", com.safeher.app.ui.screens.map.MapConfig.MAX_ZOOM_LEVEL >= 19.0)
+        assertTrue("Min zoom must be strictly less than max zoom", com.safeher.app.ui.screens.map.MapConfig.MIN_ZOOM_LEVEL < com.safeher.app.ui.screens.map.MapConfig.MAX_ZOOM_LEVEL)
+    }
+
+    @Test
+    fun mapConfig_recenterAndInitialZoomProvideStreetLevelDetail() {
+        val initialZoom = com.safeher.app.ui.screens.map.MapConfig.INITIAL_ZOOM_LEVEL
+        val recenterZoom = com.safeher.app.ui.screens.map.MapConfig.RECENTER_ZOOM_LEVEL
+
+        assertTrue("Initial zoom must be in street level range (14-18)", initialZoom in 14.0..18.0)
+        assertTrue("Recenter zoom must be in street level range (14-18)", recenterZoom in 14.0..18.0)
+    }
+
+    @Test
+    fun mapConfig_defaultCenterCoordinatesAreWithinGeographicBounds() {
+        val lat = com.safeher.app.ui.screens.map.MapConfig.DEFAULT_CENTER_LATITUDE
+        val lon = com.safeher.app.ui.screens.map.MapConfig.DEFAULT_CENTER_LONGITUDE
+
+        assertTrue("Latitude must be within [-85, 85]", lat in -85.0..85.0)
+        assertTrue("Longitude must be within [-180, 180]", lon in -180.0..180.0)
+    }
+
+    @Test
+    fun mapConfig_tilePlaceholderColorsAreValidHex() {
+        val bg = com.safeher.app.ui.screens.map.MapConfig.LOADING_BG_COLOR_HEX
+        val line = com.safeher.app.ui.screens.map.MapConfig.LOADING_LINE_COLOR_HEX
+
+        assertTrue("Background color hex must start with # and be 7 chars", bg.startsWith("#") && bg.length == 7)
+        assertTrue("Line color hex must start with # and be 7 chars", line.startsWith("#") && line.length == 7)
+    }
 }

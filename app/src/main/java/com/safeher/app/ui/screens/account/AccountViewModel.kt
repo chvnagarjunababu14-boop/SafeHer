@@ -29,32 +29,39 @@ data class AccountUiState(
     val infoMessage: String? = null,
     val remoteGuardians: List<RemoteGuardian> = emptyList(),
     val generatedInvite: GuardianInvite? = null,
+    val isGeneratingInvite: Boolean = false,
+    val inviteGenerationError: String? = null,
     val showInviteDialog: Boolean = false,
     val showAcceptInviteDialog: Boolean = false,
     val inviteCodeInput: String = "",
     val isAcceptingInvite: Boolean = false,
+    val acceptInviteError: String? = null,
     val revokingRelationshipId: String? = null,
-    val isDemoMode: Boolean = false,
-    val activeDemoProfile: com.safeher.app.data.demo.DemoProfile = com.safeher.app.data.demo.DemoProfile.USER
+    val isDemoMode: Boolean = false
 )
 
 class AccountViewModel(
     private val authRepository: AuthRepository,
     private val remoteGuardianRepository: RemoteGuardianRepository,
-    private val demoModeManager: com.safeher.app.data.demo.DemoModeManager? = null
+    private val demoModeManager: com.safeher.app.data.demo.DemoModeManager? = null,
+    private val userSessionManager: com.safeher.app.data.session.UserSessionManager? = null,
+    coroutineScope: kotlinx.coroutines.CoroutineScope? = null
 ) : ViewModel() {
+
+    private val scope: kotlinx.coroutines.CoroutineScope = coroutineScope ?: viewModelScope
 
     private val _uiState = MutableStateFlow(AccountUiState())
     val uiState: StateFlow<AccountUiState> = _uiState.asStateFlow()
 
     init {
-        demoModeManager?.let { dmm ->
-            dmm.isDemoMode
-                .onEach { isDemo -> _uiState.update { it.copy(isDemoMode = isDemo) } }
-                .launchIn(viewModelScope)
-            dmm.activeProfile
-                .onEach { profile -> _uiState.update { it.copy(activeDemoProfile = profile) } }
-                .launchIn(viewModelScope)
+        if (com.safeher.app.BuildConfig.IS_DEMO_DEFAULT) {
+            demoModeManager?.let { dmm ->
+                dmm.isDemoMode
+                    .onEach { isDemo -> _uiState.update { it.copy(isDemoMode = isDemo) } }
+                    .launchIn(scope)
+            }
+        } else {
+            _uiState.update { it.copy(isDemoMode = false) }
         }
 
         authRepository.authState
@@ -62,9 +69,11 @@ class AccountViewModel(
                 _uiState.update { it.copy(authState = auth, isLoading = false) }
                 if (auth is AuthState.Authenticated) {
                     observeRemoteGuardians()
+                } else if (auth is AuthState.Unauthenticated) {
+                    _uiState.update { it.copy(remoteGuardians = emptyList(), generatedInvite = null) }
                 }
             }
-            .launchIn(viewModelScope)
+            .launchIn(scope)
     }
 
     private fun observeRemoteGuardians() {
@@ -72,7 +81,7 @@ class AccountViewModel(
             .onEach { guardians ->
                 _uiState.update { it.copy(remoteGuardians = guardians) }
             }
-            .launchIn(viewModelScope)
+            .launchIn(scope)
     }
 
     fun toggleAuthMode() {
@@ -100,7 +109,7 @@ class AccountViewModel(
         }
 
         _uiState.update { it.copy(isLoading = true, errorMessage = null) }
-        viewModelScope.launch {
+        scope.launch {
             when (val res = authRepository.signInWithEmail(state.emailInput, state.passwordInput)) {
                 is AuthResult.Success -> {
                     _uiState.update {
@@ -130,9 +139,10 @@ class AccountViewModel(
         }
 
         _uiState.update { it.copy(isLoading = true, errorMessage = null) }
-        viewModelScope.launch {
+        scope.launch {
             when (val res = authRepository.signUpWithEmail(state.emailInput, state.passwordInput, state.displayNameInput)) {
                 is AuthResult.Success -> {
+                    userSessionManager?.markAsNewRegistration(res.user.uid)
                     _uiState.update {
                         it.copy(
                             isLoading = false,
@@ -155,7 +165,7 @@ class AccountViewModel(
 
     fun signInWithGoogle(context: Context, webClientId: String) {
         _uiState.update { it.copy(isLoading = true, errorMessage = null) }
-        viewModelScope.launch {
+        scope.launch {
             when (val res = authRepository.signInWithGoogle(context, webClientId)) {
                 is AuthResult.Success -> {
                     _uiState.update {
@@ -181,7 +191,7 @@ class AccountViewModel(
             _uiState.update { it.copy(errorMessage = "Please enter your email address to reset password.") }
             return
         }
-        viewModelScope.launch {
+        scope.launch {
             authRepository.sendPasswordResetEmail(email)
             _uiState.update {
                 it.copy(infoMessage = "If an account exists for $email, a password reset email has been sent.")
@@ -190,7 +200,7 @@ class AccountViewModel(
     }
 
     fun sendEmailVerification() {
-        viewModelScope.launch {
+        scope.launch {
             val result = authRepository.sendEmailVerification()
             if (result.isSuccess) {
                 _uiState.update { it.copy(infoMessage = "Verification email sent. Please check your inbox.") }
@@ -201,7 +211,7 @@ class AccountViewModel(
     }
 
     fun signOut() {
-        viewModelScope.launch {
+        scope.launch {
             authRepository.signOut()
             _uiState.update {
                 it.copy(
@@ -214,41 +224,102 @@ class AccountViewModel(
     }
 
     fun openInviteDialog() {
-        _uiState.update { it.copy(showInviteDialog = true, errorMessage = null) }
-        viewModelScope.launch {
+        _uiState.update {
+            it.copy(
+                showInviteDialog = true,
+                isGeneratingInvite = true,
+                generatedInvite = null,
+                inviteGenerationError = null,
+                errorMessage = null
+            )
+        }
+        generateInvite()
+    }
+
+    fun retryGenerateInvite() {
+        _uiState.update {
+            it.copy(
+                isGeneratingInvite = true,
+                generatedInvite = null,
+                inviteGenerationError = null
+            )
+        }
+        generateInvite()
+    }
+
+    private fun generateInvite() {
+        scope.launch {
             val res = remoteGuardianRepository.createInvitation()
             res.fold(
                 onSuccess = { invite ->
-                    _uiState.update { it.copy(generatedInvite = invite) }
+                    _uiState.update {
+                        it.copy(
+                            generatedInvite = invite,
+                            isGeneratingInvite = false,
+                            inviteGenerationError = null
+                        )
+                    }
                 },
                 onFailure = { err ->
-                    _uiState.update { it.copy(errorMessage = err.localizedMessage ?: "Failed to generate invite code.") }
+                    val friendlyMessage = (err.localizedMessage ?: "")
+                        .ifBlank { "Could not generate invitation. Please check your connection and try again." }
+                    _uiState.update {
+                        it.copy(
+                            isGeneratingInvite = false,
+                            showInviteDialog = false,
+                            generatedInvite = null,
+                            inviteGenerationError = friendlyMessage,
+                            errorMessage = friendlyMessage
+                        )
+                    }
                 }
             )
         }
     }
 
     fun dismissInviteDialog() {
-        _uiState.update { it.copy(showInviteDialog = false, generatedInvite = null) }
+        _uiState.update {
+            it.copy(
+                showInviteDialog = false,
+                isGeneratingInvite = false,
+                generatedInvite = null,
+                inviteGenerationError = null
+            )
+        }
     }
 
     fun openAcceptInviteDialog() {
-        _uiState.update { it.copy(showAcceptInviteDialog = true, inviteCodeInput = "", errorMessage = null) }
+        _uiState.update {
+            it.copy(
+                showAcceptInviteDialog = true,
+                inviteCodeInput = "",
+                acceptInviteError = null,
+                errorMessage = null
+            )
+        }
     }
 
     fun dismissAcceptInviteDialog() {
-        _uiState.update { it.copy(showAcceptInviteDialog = false, inviteCodeInput = "") }
+        _uiState.update {
+            it.copy(
+                showAcceptInviteDialog = false,
+                inviteCodeInput = "",
+                acceptInviteError = null
+            )
+        }
     }
 
     fun submitAcceptInvite() {
         val code = _uiState.value.inviteCodeInput.trim()
-        if (code.length < 6) {
-            _uiState.update { it.copy(errorMessage = "Please enter a valid 8-character code.") }
+        if (code.length < 10) {
+            _uiState.update {
+                it.copy(acceptInviteError = "Enter the full invitation phrase (example: BLUE-TIGER-42-MAPLE).")
+            }
             return
         }
 
-        _uiState.update { it.copy(isAcceptingInvite = true, errorMessage = null) }
-        viewModelScope.launch {
+        _uiState.update { it.copy(isAcceptingInvite = true, acceptInviteError = null, errorMessage = null) }
+        scope.launch {
             val res = remoteGuardianRepository.acceptInvitation(code)
             res.fold(
                 onSuccess = { guardian ->
@@ -257,15 +328,19 @@ class AccountViewModel(
                             isAcceptingInvite = false,
                             showAcceptInviteDialog = false,
                             inviteCodeInput = "",
-                            infoMessage = "Successfully linked with ${guardian.guardianDisplayName} as remote guardian."
+                            acceptInviteError = null,
+                            infoMessage = "Successfully linked with ${guardian.guardianDisplayName}."
                         )
                     }
                 },
                 onFailure = { err ->
+                    val friendlyMessage = (err.localizedMessage ?: "")
+                        .ifBlank { "Failed to accept invitation. Verify the phrase and try again." }
                     _uiState.update {
                         it.copy(
                             isAcceptingInvite = false,
-                            errorMessage = err.localizedMessage ?: "Failed to accept invite code."
+                            acceptInviteError = friendlyMessage,
+                            errorMessage = friendlyMessage
                         )
                     }
                 }
@@ -274,21 +349,21 @@ class AccountViewModel(
     }
 
     fun setDemoMode(enabled: Boolean) {
-        demoModeManager?.setDemoMode(enabled)
-    }
-
-    fun switchDemoProfile(profile: com.safeher.app.data.demo.DemoProfile) {
-        demoModeManager?.switchProfile(profile)
+        if (com.safeher.app.BuildConfig.IS_DEMO_DEFAULT) {
+            demoModeManager?.setDemoMode(enabled)
+        }
     }
 
     fun resetDemoData() {
-        demoModeManager?.resetDemoData()
-        _uiState.update { it.copy(infoMessage = "Demo data reset to defaults. Local Room database remains untouched.") }
+        if (com.safeher.app.BuildConfig.IS_DEMO_DEFAULT) {
+            demoModeManager?.resetDemoData()
+            _uiState.update { it.copy(infoMessage = "Demo data reset to defaults. Local Room database remains untouched.") }
+        }
     }
 
     fun revokeRelationship(relationshipId: String) {
         _uiState.update { it.copy(revokingRelationshipId = relationshipId) }
-        viewModelScope.launch {
+        scope.launch {
             val res = remoteGuardianRepository.revokeRelationship(relationshipId)
             _uiState.update { it.copy(revokingRelationshipId = null) }
             res.fold(
@@ -296,7 +371,9 @@ class AccountViewModel(
                     _uiState.update { it.copy(infoMessage = "Remote guardian relationship revoked.") }
                 },
                 onFailure = { err ->
-                    _uiState.update { it.copy(errorMessage = err.localizedMessage ?: "Failed to revoke relationship.") }
+                    val friendlyMessage = (err.localizedMessage ?: "")
+                        .ifBlank { "Failed to revoke relationship." }
+                    _uiState.update { it.copy(errorMessage = friendlyMessage) }
                 }
             )
         }

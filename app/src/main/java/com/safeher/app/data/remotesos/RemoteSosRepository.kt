@@ -20,4 +20,9 @@ interface RemoteSosRepository {
     suspend fun reportAlertReceived(alertId: String): Result<Unit>
 
     suspend fun acknowledgeAlert(alertId: String, deviceModel: String): Result<Unit>
+ 
+    /**
+     * Observes real emergency alerts authorized for the current user (e.g. as a guardian).
+     */
+    fun getAuthorizedAlertsFlow(): Flow<List<RemoteAlertDetails>>
 }

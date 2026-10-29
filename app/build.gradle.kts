@@ -34,7 +34,19 @@ android {
                 localProps.getProperty("PLACES_API_KEY", "") ?: ""
             }
         buildConfigField("String", "PLACES_API_KEY", "\"$placesApiKey\"")
-        buildConfigField("Boolean", "IS_DEMO_DEFAULT", "true")
+        val webClientId: String = (project.findProperty("FIREBASE_WEB_CLIENT_ID") as? String)
+            ?: run {
+                val localProps = Properties()
+                val localPropsFile = rootProject.file("local.properties")
+                if (localPropsFile.exists()) {
+                    localPropsFile.inputStream().use { stream ->
+                        localProps.load(stream)
+                    }
+                }
+                localProps.getProperty("FIREBASE_WEB_CLIENT_ID", "") ?: ""
+            }
+        buildConfigField("String", "FIREBASE_WEB_CLIENT_ID", "\"$webClientId\"")
+        buildConfigField("Boolean", "IS_DEMO_DEFAULT", "false")
     }
 
     flavorDimensions += "mode"
@@ -66,6 +78,9 @@ android {
     buildFeatures {
         compose = true
         buildConfig = true
+    }
+    testOptions {
+        unitTests.isReturnDefaultValues = true
     }
 }
 

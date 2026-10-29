@@ -45,10 +45,13 @@ export const acknowledgeAlert = onCall(CALLABLE_OPTIONS, (request: CallableReque
 });
 
 // Scheduled cleanup for sensitive location retention: runs every 6 hours
-export const scheduledLocationCleanup = onSchedule("every 6 hours", async () => {
-  const purgedCount = await purgeExpiredSensitiveLocations();
-  console.log(`[SafeHer Retention] Purged ${purgedCount} expired sensitive location subdocuments.`);
-});
+export const scheduledLocationCleanup = onSchedule(
+  { schedule: "every 6 hours", region: "asia-south1" },
+  async () => {
+    const purgedCount = await purgeExpiredSensitiveLocations();
+    console.log(`[SafeHer Retention] Purged ${purgedCount} expired sensitive location subdocuments.`);
+  }
+);
 
 // Callable version for testing cleanup
 export const triggerLocationCleanup = onCall(CALLABLE_OPTIONS, async () => {

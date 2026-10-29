@@ -8,29 +8,41 @@
 
     <!-- Top App Bar -->
     <string name="greeting_user">Welcome to SafeHer</string>
-    <string name="status_protected">UI Preview Mode</string>
-    <string name="profile_avatar_desc">Profile &amp; Settings Preview</string>
+    <string name="status_protected">Personal Safety</string>
+    <string name="profile_avatar_desc">Profile &amp; Account</string>
 
     <!-- Safety Hero Section -->
     <string name="hero_title">Your Safety, Our Priority</string>
-    <string name="hero_subtitle">SafeHer is designed for rapid emergency signaling and trusted guardian alerts. (UI Preview)</string>
-    <string name="hero_badge">Setup Required in Phase 4</string>
+    <string name="hero_subtitle">SafeHer helps you manage guardians, journeys, and emergency SOS alerts from this device.</string>
+    <string name="hero_badge">Local circle ready</string>
     <string name="guardians_unconfigured">0 Guardians Added</string>
+    <string name="guardians_one_added">1 Guardian Added</string>
+    <string name="guardians_n_added">%1$d Guardians Added</string>
+    <string name="demo_mode_title">SafeHer Demo Mode Active</string>
+    <string name="demo_mode_body">Local simulation enabled. Tap to switch demo roles or exit.</string>
 
     <!-- SOS Section -->
     <string name="sos_title">SOS</string>
+    <string name="sos_hold_hint">HOLD 2S</string>
+    <string name="sos_cancel">Cancel</string>
     <string name="sos_instruction">Press and hold for SOS</string>
     <string name="sos_holding">Keep holding…</string>
     <string name="sos_canceled">Released early • Cancelled</string>
-    <string name="sos_button_desc">Emergency SOS demonstration button. Press and hold for two seconds to view simulated flow.</string>
-    <string name="sos_preview_footnote">Hold 2s for UI demo • No real emergency dispatched</string>
+    <string name="sos_button_desc">Emergency SOS button. Press and hold for two seconds to start the cancellable SOS countdown.</string>
+    <string name="sos_preview_footnote">Hold 2s to start SOS. Direct SMS is off — you will open SOS Settings to enable consent before automatic sending. SMS may incur carrier charges.</string>
+    <string name="sos_direct_enabled_footnote">Hold 2s to start a cancellable Direct SMS countdown. You can cancel before send. Delivery is not guaranteed. SMS may incur carrier charges.</string>
+    <string name="sos_quick_confirm_title">Start emergency SOS?</string>
+    <string name="sos_quick_confirm_body">This starts a cancellable Direct SMS countdown to your SOS-enabled guardians. Cancel anytime before it finishes. Delivery is not guaranteed.</string>
+    <string name="sos_quick_confirm_action">Start countdown</string>
+    <string name="sos_settings_label">SOS Settings</string>
+    <string name="sos_quick_label">Quick SOS</string>
 
     <!-- Safety Shortcuts -->
     <string name="shortcuts_section_title">Safety Shortcuts</string>
     <string name="shortcut_live_tracking">Live Tracking</string>
     <string name="shortcut_live_tracking_desc">Share real-time path (Preview)</string>
     <string name="shortcut_contacts">Trusted Contacts</string>
-    <string name="shortcut_contacts_desc">Configure circle (Phase 4)</string>
+    <string name="shortcut_contacts_desc">Manage your local guardian circle</string>
     <string name="shortcut_safe_journey">Safe Journey</string>
     <string name="shortcut_safe_journey_desc">Trip timer &amp; check-in</string>
     <string name="shortcut_emergency_call">Emergency (112)</string>
@@ -108,5 +120,93 @@
     <string name="journeys_cancel_action">Cancel Journey</string>
     <string name="journeys_history_title">Journey History</string>
     <string name="journeys_privacy_notice">Stored locally on device • No location or alerts transmitted</string>
+
+    <!-- Welcome & Onboarding -->
+    <string name="welcome_headline">Your safety. Your journey. Your circle.</string>
+    <string name="welcome_description">SafeHer provides offline-first safety tools, rapid emergency signaling to your trusted circle, and private journey monitoring built with your privacy at the core.</string>
+    <string name="welcome_get_started">Get Started</string>
+    <string name="welcome_already_have_account">I already have an account</string>
+
+    <!-- Onboarding Controls -->
+    <string name="onboarding_skip">Skip</string>
+    <string name="onboarding_next">Next</string>
+    <string name="onboarding_back">Back</string>
+    <string name="onboarding_finish">Get Started</string>
+
+    <!-- Onboarding Slide 1: Personal Safety -->
+    <string name="onboarding_slide1_title">Personal Safety &amp; Circle</string>
+    <string name="onboarding_slide1_subtitle">Your safety circle, your way</string>
+    <string name="onboarding_slide1_desc">Configure your inner circle of trusted family and friends. When you need help, SafeHer lets you alert your guardians instantly without confusing menus or delay.</string>
+    <string name="onboarding_slide1_badge">Trusted Circle</string>
+
+    <!-- Onboarding Slide 2: Journey Safety -->
+    <string name="onboarding_slide2_title">Journey Safety &amp; Check-ins</string>
+    <string name="onboarding_slide2_subtitle">Local ETA monitoring you control</string>
+    <string name="onboarding_slide2_desc">Set a destination and estimated arrival time before heading out. SafeHer monitors your journey locally and notifies you to confirm you are safe if your arrival is delayed.</string>
+    <string name="onboarding_slide2_badge">Local Monitoring</string>
+
+    <!-- Onboarding Slide 3: SOS Protection -->
+    <string name="onboarding_slide3_title">Deliberate SOS Protection</string>
+    <string name="onboarding_slide3_subtitle">Fast emergency signaling</string>
+    <string name="onboarding_slide3_desc">Hold the SOS button for 2 seconds to dispatch emergency signals. Send direct SMS alerts with live coordinates to your guardians, with automatic or manual fallback. Sending an SMS does not guarantee delivery due to carrier networks.</string>
+    <string name="onboarding_slide3_badge">Direct &amp; Manual SOS</string>
+
+    <!-- Onboarding Slide 4: Privacy & Control -->
+    <string name="onboarding_slide4_title">Privacy &amp; On-Device Control</string>
+    <string name="onboarding_slide4_subtitle">Zero continuous tracking</string>
+    <string name="onboarding_slide4_desc">Your contacts, journey logs, and coordinates stay on your device. SafeHer only accesses location in the foreground or during active journeys. No third-party data brokers, ever.</string>
+    <string name="onboarding_slide4_badge">Privacy First</string>
+
+    <!-- Authentication Flow -->
+    <string name="auth_sign_in_title">Welcome Back</string>
+    <string name="auth_sign_up_title">Create Account</string>
+    <string name="auth_sign_in_tab">Sign In</string>
+    <string name="auth_sign_up_tab">Sign Up</string>
+    <string name="auth_email_label">Email address</string>
+    <string name="auth_email_placeholder">name@example.com</string>
+    <string name="auth_password_label">Password</string>
+    <string name="auth_confirm_password_label">Confirm Password</string>
+    <string name="auth_name_label">Full Name (Optional)</string>
+    <string name="auth_sign_in_button">Sign In</string>
+    <string name="auth_sign_up_button">Create Account</string>
+    <string name="auth_forgot_password">Forgot password?</string>
+    <string name="auth_or_divider">or</string>
+    <string name="auth_google_button">Continue with Google</string>
+    <string name="auth_show_password">Show password</string>
+    <string name="auth_hide_password">Hide password</string>
+    <string name="auth_switch_to_signup">Don\'t have an account? Sign Up</string>
+    <string name="auth_switch_to_signin">Already have an account? Sign In</string>
+    <string name="auth_reset_title">Reset Password</string>
+    <string name="auth_reset_desc">Enter your email address and we will send you a link to reset your password.</string>
+    <string name="auth_reset_send">Send Reset Email</string>
+    <string name="auth_cancel">Cancel</string>
+    <string name="auth_demo_button">Explore in Demo Mode</string>
+
+    <!-- First Login Setup Checklist -->
+    <string name="setup_title">Quick Safety Setup</string>
+    <string name="setup_subtitle">Configure key protections to get the most out of SafeHer. You can also adjust these anytime in Settings.</string>
+    <string name="setup_step1_title">1. Add a Trusted Guardian</string>
+    <string name="setup_step1_desc">Add at least one trusted contact to receive instant SMS notifications during emergencies or overdue journeys.</string>
+    <string name="setup_step1_action">Add Guardian</string>
+    <string name="setup_step1_done">Guardian Added ✓</string>
+    <string name="setup_step2_title">2. Location Access</string>
+    <string name="setup_step2_desc">Location is required to display your position on the map and attach your coordinates to emergency SOS alerts.</string>
+    <string name="setup_step2_action">Grant Location Access</string>
+    <string name="setup_step2_done">Location Granted ✓</string>
+    <string name="setup_step3_title">3. Direct SMS &amp; SOS Consent</string>
+    <string name="setup_step3_desc">Enables sending emergency SMS directly from your device. Requires explicit permission and consent.</string>
+    <string name="setup_step3_action">Review Consent &amp; Permissions</string>
+    <string name="setup_step3_done">SMS Configured ✓</string>
+    <string name="setup_step4_title">4. Notifications &amp; Journey Alerts</string>
+    <string name="setup_step4_desc">Enables safety check-in reminders and overdue alerts if an active journey runs past its estimated arrival time.</string>
+    <string name="setup_step4_action">Enable Notifications</string>
+    <string name="setup_step4_done">Notifications Enabled ✓</string>
+    <string name="setup_complete_button">Complete Setup</string>
+    <string name="setup_skip_button">Skip for Now</string>
+    <string name="setup_add_guardian_title">Add Trusted Guardian</string>
+    <string name="setup_guardian_name">Guardian Name</string>
+    <string name="setup_guardian_phone">Phone Number</string>
+    <string name="setup_guardian_relationship">Relationship (e.g., Mom, Friend)</string>
+    <string name="setup_guardian_save">Save Guardian</string>
 </resources>
 

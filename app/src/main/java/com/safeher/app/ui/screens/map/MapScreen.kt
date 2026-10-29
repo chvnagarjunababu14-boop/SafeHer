@@ -165,17 +165,40 @@ fun MapScreen(
         }
     }
 
-    // Initialize OSMDroid MapView with safe internal cache configuration
+    // Initialize OSMDroid MapView with safe internal cache configuration and repetition controls
     val mapView = remember {
-        Configuration.getInstance().load(context, context.getSharedPreferences("osmdroid", Context.MODE_PRIVATE))
-        Configuration.getInstance().userAgentValue = context.packageName
+        val config = Configuration.getInstance()
+        config.load(context, context.getSharedPreferences("osmdroid", Context.MODE_PRIVATE))
+        config.userAgentValue = "${context.packageName}/${com.safeher.app.BuildConfig.VERSION_NAME}"
+
         MapView(context).apply {
             setTileSource(TileSourceFactory.MAPNIK)
             setMultiTouchControls(true)
             zoomController.setVisibility(CustomZoomButtonsController.Visibility.NEVER)
-            controller.setZoom(16.0)
+
+            // Prevent repeated world-map bands across the viewport
+            isVerticalMapRepetitionEnabled = false
+            isHorizontalMapRepetitionEnabled = false
+
+            // Scale tiles according to screen density so map labels and streets are sharp and readable
+            isTilesScaledToDpi = true
+
+            // Bound zoom levels so zooming out never collapses into repeating world wallpaper
+            minZoomLevel = MapConfig.MIN_ZOOM_LEVEL
+            maxZoomLevel = MapConfig.MAX_ZOOM_LEVEL
+
+            // Clamp scrollable area to valid geographic coordinates
+            val tileSystem = MapView.getTileSystem()
+            setScrollableAreaLimitLatitude(tileSystem.maxLatitude, tileSystem.minLatitude, 0)
+            setScrollableAreaLimitLongitude(tileSystem.minLongitude, tileSystem.maxLongitude, 0)
+
+            // Graceful loading/offline tile background
+            mapOverlay.loadingBackgroundColor = android.graphics.Color.parseColor(MapConfig.LOADING_BG_COLOR_HEX)
+            mapOverlay.loadingLineColor = android.graphics.Color.parseColor(MapConfig.LOADING_LINE_COLOR_HEX)
+
+            controller.setZoom(MapConfig.INITIAL_ZOOM_LEVEL)
             // Default safe starting point (central view)
-            controller.setCenter(GeoPoint(20.5937, 78.9629))
+            controller.setCenter(GeoPoint(MapConfig.DEFAULT_CENTER_LATITUDE, MapConfig.DEFAULT_CENTER_LONGITUDE))
         }
     }
 
@@ -240,7 +263,11 @@ fun MapScreen(
                 if (!mapView.overlays.contains(userMarker)) {
                     mapView.overlays.add(userMarker)
                 }
-                mapView.controller.animateTo(point)
+                if (mapView.zoomLevelDouble < 15.0) {
+                    mapView.controller.animateTo(point, MapConfig.RECENTER_ZOOM_LEVEL, 1000L)
+                } else {
+                    mapView.controller.animateTo(point)
+                }
                 mapView.invalidate()
             }
             is MapUiState.Initial -> {
@@ -256,7 +283,11 @@ fun MapScreen(
         val current = uiState as? MapUiState.Success
         if (current != null) {
             val point = GeoPoint(current.location.latitude, current.location.longitude)
-            mapView.controller.animateTo(point)
+            if (mapView.zoomLevelDouble < 15.0) {
+                mapView.controller.animateTo(point, MapConfig.RECENTER_ZOOM_LEVEL, 1000L)
+            } else {
+                mapView.controller.animateTo(point)
+            }
         }
     }
 

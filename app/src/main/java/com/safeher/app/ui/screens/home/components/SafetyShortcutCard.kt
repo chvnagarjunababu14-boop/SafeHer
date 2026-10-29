@@ -5,19 +5,16 @@ import androidx.compose.foundation.border
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
-import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.Spacer
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
+import androidx.compose.foundation.layout.heightIn
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
-import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.shape.CircleShape
-import androidx.compose.foundation.shape.RoundedCornerShape
-import androidx.compose.material3.Card
-import androidx.compose.material3.CardDefaults
 import androidx.compose.material3.Icon
 import androidx.compose.material3.MaterialTheme
+import androidx.compose.material3.Surface
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
 import androidx.compose.ui.Alignment
@@ -29,8 +26,8 @@ import androidx.compose.ui.semantics.Role
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
-import androidx.compose.ui.unit.sp
 import com.safeher.app.ui.theme.SafeHerBorderLavender
+import com.safeher.app.ui.theme.SafeHerDimens
 import com.safeher.app.ui.theme.SafeHerSurfaceWhite
 import com.safeher.app.ui.theme.SafeHerTextPrimary
 import com.safeher.app.ui.theme.SafeHerTextSecondary
@@ -45,26 +42,25 @@ fun SafetyShortcutCard(
     onClick: () -> Unit,
     modifier: Modifier = Modifier
 ) {
-    Card(
+    Surface(
         modifier = modifier
             .fillMaxWidth()
-            .clip(RoundedCornerShape(20.dp))
-            .border(1.dp, SafeHerBorderLavender, RoundedCornerShape(20.dp))
+            .heightIn(min = 108.dp)
+            .clip(MaterialTheme.shapes.medium)
+            .border(1.dp, SafeHerBorderLavender, MaterialTheme.shapes.medium)
             .clickable(
                 role = Role.Button,
                 onClickLabel = "$title shortcut",
                 onClick = onClick
             ),
-        shape = RoundedCornerShape(20.dp),
-        colors = CardDefaults.cardColors(
-            containerColor = SafeHerSurfaceWhite
-        ),
-        elevation = CardDefaults.cardElevation(defaultElevation = 1.dp)
+        shape = MaterialTheme.shapes.medium,
+        color = SafeHerSurfaceWhite,
+        shadowElevation = SafeHerDimens.elevationLow
     ) {
         Column(
             modifier = Modifier
                 .fillMaxWidth()
-                .padding(14.dp)
+                .padding(SafeHerDimens.spaceSm)
         ) {
             Box(
                 modifier = Modifier
@@ -77,11 +73,11 @@ fun SafetyShortcutCard(
                     imageVector = icon,
                     contentDescription = null,
                     tint = iconTint,
-                    modifier = Modifier.size(22.dp)
+                    modifier = Modifier.size(SafeHerDimens.iconMd)
                 )
             }
 
-            Spacer(modifier = Modifier.height(12.dp))
+            Spacer(modifier = Modifier.height(SafeHerDimens.spaceSm))
 
             Text(
                 text = title,
@@ -92,14 +88,13 @@ fun SafetyShortcutCard(
                 overflow = TextOverflow.Ellipsis
             )
 
-            Spacer(modifier = Modifier.height(2.dp))
+            Spacer(modifier = Modifier.height(SafeHerDimens.spaceXxxs))
 
             Text(
                 text = subtitle,
                 style = MaterialTheme.typography.bodySmall,
                 color = SafeHerTextSecondary,
-                fontSize = 11.5.sp,
-                maxLines = 1,
+                maxLines = 2,
                 overflow = TextOverflow.Ellipsis
             )
         }

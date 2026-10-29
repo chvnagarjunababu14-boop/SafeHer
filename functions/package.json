@@ -10,10 +10,12 @@
     "start": "npm run shell",
     "deploy": "firebase deploy --only functions",
     "logs": "firebase functions:log",
-    "test": "mocha -r ts-node/register \"test/**/*.test.ts\" --timeout 10000"
+    "test": "npm run test:functions",
+    "test:functions": "mocha -r ts-node/register test/functions.test.ts --timeout 10000",
+    "test:rules": "mocha -r ts-node/register test/rules.test.ts --timeout 20000"
   },
   "engines": {
-    "node": ">=18"
+    "node": "20"
   },
   "main": "lib/index.js",
   "dependencies": {
@@ -21,6 +23,7 @@
     "firebase-functions": "^5.0.0"
   },
   "devDependencies": {
+    "@firebase/rules-unit-testing": "^6.0.0",
     "@types/chai": "^4.3.14",
     "@types/mocha": "^10.0.6",
     "@types/node": "^20.11.0",

@@ -24,6 +24,7 @@ import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.automirrored.filled.ArrowBack
 import androidx.compose.material.icons.filled.CheckCircle
 import androidx.compose.material.icons.filled.Close
+import androidx.compose.material.icons.filled.ContentCopy
 import androidx.compose.material.icons.filled.Info
 import androidx.compose.material.icons.filled.Lock
 import androidx.compose.material.icons.filled.Mail
@@ -56,11 +57,14 @@ import androidx.compose.material3.TopAppBarDefaults
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.collectAsState
 import androidx.compose.runtime.getValue
+import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
 import androidx.compose.ui.graphics.Color
+import androidx.compose.ui.platform.LocalClipboardManager
 import androidx.compose.ui.platform.LocalContext
+import androidx.compose.ui.text.AnnotatedString
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.input.PasswordVisualTransformation
 import androidx.compose.ui.text.style.TextAlign
@@ -95,16 +99,24 @@ fun AccountScreen(
 ) {
     val uiState by viewModel.uiState.collectAsState()
     val context = LocalContext.current
+    val clipboardManager = LocalClipboardManager.current
 
     Scaffold(
         topBar = {
             TopAppBar(
                 title = {
-                    Text(
-                        text = "Account & Remote Circle",
-                        fontWeight = FontWeight.Bold,
-                        color = SafeHerPurpleDark
-                    )
+                    Column {
+                        Text(
+                            text = "Account",
+                            fontWeight = FontWeight.Bold,
+                            color = SafeHerPurpleDark
+                        )
+                        Text(
+                            text = "Profile, remote circle & session",
+                            style = MaterialTheme.typography.labelSmall,
+                            color = SafeHerTextSecondary
+                        )
+                    }
                 },
                 navigationIcon = {
                     IconButton(onClick = onBackClick) {
@@ -186,14 +198,14 @@ fun AccountScreen(
                 }
             }
 
-            // Demo Mode Controller Card
-            DemoModeControllerCard(
-                isDemoMode = uiState.isDemoMode,
-                activeProfile = uiState.activeDemoProfile,
-                onSetDemoMode = { viewModel.setDemoMode(it) },
-                onSwitchProfile = { viewModel.switchDemoProfile(it) },
-                onResetDemoData = { viewModel.resetDemoData() }
-            )
+            // Demo Mode Controller Card (Only shown in demo build flavor)
+            if (com.safeher.app.BuildConfig.IS_DEMO_DEFAULT && uiState.isDemoMode) {
+                DemoModeControllerCard(
+                    isDemoMode = uiState.isDemoMode,
+                    onSetDemoMode = { viewModel.setDemoMode(it) },
+                    onResetDemoData = { viewModel.resetDemoData() }
+                )
+            }
 
             when (val auth = uiState.authState) {
                 is AuthState.Loading -> {
@@ -212,8 +224,7 @@ fun AccountScreen(
                         onSignUp = { viewModel.signUpWithEmail() },
                         onForgotPassword = { viewModel.sendPasswordReset() },
                         onGoogleSignIn = {
-                            // Uses empty string if web client id not yet in local config; displays helpful error
-                            viewModel.signInWithGoogle(context, "")
+                            viewModel.signInWithGoogle(context, com.safeher.app.BuildConfig.FIREBASE_WEB_CLIENT_ID)
                         }
                     )
                 }
@@ -236,17 +247,23 @@ fun AccountScreen(
     if (uiState.showInviteDialog) {
         InviteGuardianDialog(
             invite = uiState.generatedInvite,
+            isGenerating = uiState.isGeneratingInvite,
+            error = uiState.inviteGenerationError,
+            onRetry = { viewModel.retryGenerateInvite() },
             onDismiss = { viewModel.dismissInviteDialog() },
+            onCopy = { code ->
+                clipboardManager.setText(AnnotatedString(code))
+            },
             onShare = { code ->
                 val sendIntent = Intent().apply {
                     action = Intent.ACTION_SEND
                     putExtra(
                         Intent.EXTRA_TEXT,
-                        "Join my SafeHer remote guardian circle! Enter this invitation code in your SafeHer app: $code (Valid for 48 hours)."
+                        "Join my SafeHer remote guardian circle. Enter this temporary invitation phrase in SafeHer: $code (single-use, expires in 48 hours). Share only with the intended guardian."
                     )
                     type = "text/plain"
                 }
-                val shareIntent = Intent.createChooser(sendIntent, "Share SafeHer Guardian Code")
+                val shareIntent = Intent.createChooser(sendIntent, "Share SafeHer invitation phrase")
                 context.startActivity(shareIntent)
             }
         )
@@ -257,6 +274,7 @@ fun AccountScreen(
         AcceptGuardianDialog(
             code = uiState.inviteCodeInput,
             isLoading = uiState.isAcceptingInvite,
+            error = uiState.acceptInviteError,
             onCodeChange = { viewModel.updateInviteCode(it) },
             onDismiss = { viewModel.dismissAcceptInviteDialog() },
             onSubmit = { viewModel.submitAcceptInvite() }
@@ -499,7 +517,35 @@ private fun AuthenticatedSection(
                 lineHeight = 16.sp
             )
 
-            Spacer(modifier = Modifier.height(16.dp))
+            Spacer(modifier = Modifier.height(8.dp))
+
+            // Honest Availability State Notice
+            Card(
+                colors = CardDefaults.cardColors(containerColor = SafeHerPurpleContainer.copy(alpha = 0.45f)),
+                shape = RoundedCornerShape(10.dp),
+                modifier = Modifier.fillMaxWidth()
+            ) {
+                Row(
+                    modifier = Modifier.padding(10.dp),
+                    verticalAlignment = Alignment.CenterVertically
+                ) {
+                    Icon(
+                        imageVector = Icons.Default.Info,
+                        contentDescription = null,
+                        tint = SafeHerPurplePrimary,
+                        modifier = Modifier.size(16.dp)
+                    )
+                    Spacer(modifier = Modifier.width(8.dp))
+                    Text(
+                        text = "Share invitation phrases only with your intended guardian. Phrases expire in 48 hours and work once. Local SMS SOS and on-device guardians remain separate from remote links.",
+                        fontSize = 11.sp,
+                        color = SafeHerPurpleDark,
+                        lineHeight = 15.sp
+                    )
+                }
+            }
+
+            Spacer(modifier = Modifier.height(14.dp))
 
             Row(modifier = Modifier.fillMaxWidth()) {
                 Button(
@@ -610,14 +656,20 @@ private fun RemoteGuardianRow(
 @Composable
 private fun InviteGuardianDialog(
     invite: GuardianInvite?,
+    isGenerating: Boolean,
+    error: String?,
+    onRetry: () -> Unit,
     onDismiss: () -> Unit,
+    onCopy: (String) -> Unit,
     onShare: (String) -> Unit
 ) {
+    var isCopied by androidx.compose.runtime.remember { androidx.compose.runtime.mutableStateOf(false) }
+
     AlertDialog(
         onDismissRequest = onDismiss,
         title = {
             Text(
-                text = "Guardian Invitation Code",
+                text = "Guardian Invitation Phrase",
                 fontWeight = FontWeight.Bold,
                 color = SafeHerPurpleDark
             )
@@ -625,7 +677,7 @@ private fun InviteGuardianDialog(
         text = {
             Column(horizontalAlignment = Alignment.CenterHorizontally, modifier = Modifier.fillMaxWidth()) {
                 Text(
-                    text = "Share this single-use code with a trusted contact. Once they accept in SafeHer, they will become your remote guardian and receive emergency push alerts.",
+                    text = "Share this temporary phrase only with your intended Guardian. It is single-use, expires after 48 hours, and is shown only after Firestore confirms creation. Do not post it publicly.",
                     fontSize = 13.sp,
                     color = SafeHerTextSecondary,
                     lineHeight = 18.sp
@@ -633,50 +685,127 @@ private fun InviteGuardianDialog(
 
                 Spacer(modifier = Modifier.height(16.dp))
 
-                if (invite == null) {
-                    CircularProgressIndicator(color = SafeHerPurplePrimary)
-                } else {
-                    Box(
-                        modifier = Modifier
-                            .clip(RoundedCornerShape(12.dp))
-                            .background(SafeHerPurpleContainer)
-                            .padding(horizontal = 24.dp, vertical = 12.dp)
-                    ) {
+                when {
+                    isGenerating -> {
+                        CircularProgressIndicator(color = SafeHerPurplePrimary)
+                        Spacer(modifier = Modifier.height(10.dp))
                         Text(
-                            text = invite.code,
-                            fontSize = 24.sp,
-                            fontWeight = FontWeight.Bold,
-                            color = SafeHerPurplePrimary,
-                            letterSpacing = 2.sp
+                            text = "Creating invitation in Firestore...",
+                            fontSize = 12.sp,
+                            color = SafeHerTextSecondary
                         )
                     }
 
-                    Spacer(modifier = Modifier.height(8.dp))
+                    error != null -> {
+                        Card(
+                            colors = CardDefaults.cardColors(containerColor = SafeHerSosTrack),
+                            shape = RoundedCornerShape(12.dp),
+                            modifier = Modifier.fillMaxWidth()
+                        ) {
+                            Column(modifier = Modifier.padding(12.dp)) {
+                                Row(verticalAlignment = Alignment.CenterVertically) {
+                                    Icon(
+                                        imageVector = Icons.Default.Warning,
+                                        contentDescription = null,
+                                        tint = SafeHerSosCrimson,
+                                        modifier = Modifier.size(20.dp)
+                                    )
+                                    Spacer(modifier = Modifier.width(8.dp))
+                                    Text(
+                                        text = "Generation Failed",
+                                        fontWeight = FontWeight.Bold,
+                                        color = SafeHerSosCrimson,
+                                        fontSize = 13.sp
+                                    )
+                                }
+                                Spacer(modifier = Modifier.height(6.dp))
+                                Text(
+                                    text = error,
+                                    fontSize = 12.sp,
+                                    color = SafeHerSosCrimson,
+                                    lineHeight = 16.sp
+                                )
+                            }
+                        }
+                    }
 
-                    val expiryDate = SimpleDateFormat("MMM d, h:mm a", Locale.getDefault()).format(Date(invite.expiresAtMillis))
-                    Text(
-                        text = "Expires: $expiryDate (48 hours)",
-                        fontSize = 11.sp,
-                        color = SafeHerTextSecondary
-                    )
+                    invite != null -> {
+                        Box(
+                            modifier = Modifier
+                                .clip(RoundedCornerShape(12.dp))
+                                .background(SafeHerPurpleContainer)
+                                .padding(horizontal = 24.dp, vertical = 12.dp)
+                        ) {
+                            Text(
+                                text = invite.code,
+                                fontSize = 18.sp,
+                                fontWeight = FontWeight.Bold,
+                                color = SafeHerPurplePrimary,
+                                letterSpacing = 1.sp
+                            )
+                        }
+
+                        Spacer(modifier = Modifier.height(8.dp))
+
+                        val expiryDate = SimpleDateFormat("MMM d, h:mm a", Locale.getDefault())
+                            .format(Date(invite.expiresAtMillis))
+                        Text(
+                            text = "Expires: $expiryDate (48 hours)",
+                            fontSize = 12.sp,
+                            fontWeight = FontWeight.Medium,
+                            color = SafeHerTextSecondary
+                        )
+
+                        if (isCopied) {
+                            Spacer(modifier = Modifier.height(6.dp))
+                            Text(
+                                text = "Code copied to clipboard!",
+                                fontSize = 11.sp,
+                                color = SafeHerPurplePrimary,
+                                fontWeight = FontWeight.Bold
+                            )
+                        }
+                    }
                 }
             }
         },
         confirmButton = {
-            if (invite != null) {
-                Button(
-                    onClick = { onShare(invite.code) },
-                    colors = ButtonDefaults.buttonColors(containerColor = SafeHerPurplePrimary)
-                ) {
-                    Icon(Icons.Default.Share, contentDescription = null, modifier = Modifier.size(16.dp))
-                    Spacer(modifier = Modifier.width(6.dp))
-                    Text("Share Code")
+            when {
+                error != null -> {
+                    Button(
+                        onClick = onRetry,
+                        colors = ButtonDefaults.buttonColors(containerColor = SafeHerPurplePrimary)
+                    ) {
+                        Text("Retry")
+                    }
+                }
+                invite != null -> {
+                    Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+                        OutlinedButton(
+                            onClick = {
+                                onCopy(invite.code)
+                                isCopied = true
+                            }
+                        ) {
+                            Icon(Icons.Default.ContentCopy, contentDescription = null, modifier = Modifier.size(16.dp))
+                            Spacer(modifier = Modifier.width(4.dp))
+                            Text("Copy")
+                        }
+                        Button(
+                            onClick = { onShare(invite.code) },
+                            colors = ButtonDefaults.buttonColors(containerColor = SafeHerPurplePrimary)
+                        ) {
+                            Icon(Icons.Default.Share, contentDescription = null, modifier = Modifier.size(16.dp))
+                            Spacer(modifier = Modifier.width(4.dp))
+                            Text("Share")
+                        }
+                    }
                 }
             }
         },
         dismissButton = {
             TextButton(onClick = onDismiss) {
-                Text("Close")
+                Text(if (error != null) "Cancel" else "Close")
             }
         },
         shape = RoundedCornerShape(20.dp)
@@ -687,6 +816,7 @@ private fun InviteGuardianDialog(
 private fun AcceptGuardianDialog(
     code: String,
     isLoading: Boolean,
+    error: String? = null,
     onCodeChange: (String) -> Unit,
     onDismiss: () -> Unit,
     onSubmit: () -> Unit
@@ -703,7 +833,7 @@ private fun AcceptGuardianDialog(
         text = {
             Column {
                 Text(
-                    text = "Enter the 8-character invitation code provided by the person who wants you to be their remote guardian.",
+                    text = "Enter the exact invitation phrase shared by the Personal Safety User (example format: BLUE-TIGER-42-MAPLE).",
                     fontSize = 13.sp,
                     color = SafeHerTextSecondary,
                     lineHeight = 18.sp
@@ -714,11 +844,21 @@ private fun AcceptGuardianDialog(
                 OutlinedTextField(
                     value = code,
                     onValueChange = onCodeChange,
-                    label = { Text("8-Character Code") },
+                    label = { Text("Invitation phrase") },
                     singleLine = true,
                     shape = RoundedCornerShape(12.dp),
                     modifier = Modifier.fillMaxWidth()
                 )
+
+                if (error != null) {
+                    Spacer(modifier = Modifier.height(8.dp))
+                    Text(
+                        text = error,
+                        color = SafeHerSosCrimson,
+                        fontSize = 12.sp,
+                        lineHeight = 16.sp
+                    )
+                }
 
                 Spacer(modifier = Modifier.height(12.dp))
 
@@ -742,7 +882,7 @@ private fun AcceptGuardianDialog(
         confirmButton = {
             Button(
                 onClick = onSubmit,
-                enabled = code.length >= 6 && !isLoading,
+                enabled = code.length >= 10 && !isLoading,
                 colors = ButtonDefaults.buttonColors(containerColor = SafeHerPurplePrimary)
             ) {
                 if (isLoading) {
@@ -764,9 +904,7 @@ private fun AcceptGuardianDialog(
 @Composable
 private fun DemoModeControllerCard(
     isDemoMode: Boolean,
-    activeProfile: com.safeher.app.data.demo.DemoProfile,
     onSetDemoMode: (Boolean) -> Unit,
-    onSwitchProfile: (com.safeher.app.data.demo.DemoProfile) -> Unit,
     onResetDemoData: () -> Unit,
     modifier: Modifier = Modifier
 ) {
@@ -823,56 +961,6 @@ private fun DemoModeControllerCard(
             if (isDemoMode) {
                 Spacer(modifier = Modifier.height(12.dp))
                 HorizontalDivider(color = SafeHerPurpleLight.copy(alpha = 0.4f))
-                Spacer(modifier = Modifier.height(10.dp))
-
-                Text(
-                    text = "Active Fictional Role:",
-                    fontSize = 12.sp,
-                    fontWeight = FontWeight.SemiBold,
-                    color = SafeHerTextPrimary
-                )
-                Spacer(modifier = Modifier.height(6.dp))
-
-                // Role Selector Buttons
-                Row(
-                    modifier = Modifier.fillMaxWidth(),
-                    horizontalArrangement = Arrangement.spacedBy(8.dp)
-                ) {
-                    com.safeher.app.data.demo.DemoProfile.entries.forEach { profile ->
-                        val isSelected = profile == activeProfile
-                        Card(
-                            colors = CardDefaults.cardColors(
-                                containerColor = if (isSelected) SafeHerPurplePrimary else Color.White
-                            ),
-                            shape = RoundedCornerShape(10.dp),
-                            border = BorderStroke(
-                                1.dp,
-                                if (isSelected) SafeHerPurplePrimary else SafeHerBorderLavender
-                            ),
-                            modifier = Modifier
-                                .weight(1f)
-                                .clickable { onSwitchProfile(profile) }
-                        ) {
-                            Column(
-                                modifier = Modifier.padding(8.dp),
-                                horizontalAlignment = Alignment.CenterHorizontally
-                            ) {
-                                Text(
-                                    text = profile.displayName,
-                                    fontSize = 12.sp,
-                                    fontWeight = FontWeight.Bold,
-                                    color = if (isSelected) Color.White else SafeHerTextPrimary
-                                )
-                                Text(
-                                    text = profile.roleTitle,
-                                    fontSize = 10.sp,
-                                    color = if (isSelected) Color.White.copy(alpha = 0.85f) else SafeHerTextSecondary
-                                )
-                            }
-                        }
-                    }
-                }
-
                 Spacer(modifier = Modifier.height(12.dp))
 
                 // Demo Actions: Reset and Exit

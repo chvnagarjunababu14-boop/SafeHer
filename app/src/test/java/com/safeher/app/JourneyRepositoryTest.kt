@@ -44,28 +44,55 @@ class FakeJourneyDao : JourneyDao {
             .sortedByDescending { it.startTimestamp }
     }
 
+    override fun getJourneysForUser(userId: String): List<JourneyEntity> {
+        return storage.values.filter { it.userId == userId }.sortedByDescending { it.startTimestamp }
+    }
+
+    override fun getActiveOrOverdueJourneysForUser(userId: String): List<JourneyEntity> {
+        return storage.values
+            .filter { it.userId == userId && (it.status == JourneyStatus.ACTIVE.name || it.status == JourneyStatus.OVERDUE.name) }
+            .sortedByDescending { it.startTimestamp }
+    }
+
+    override fun getLatestActiveOrOverdueJourneyForUser(userId: String): JourneyEntity? {
+        return getActiveOrOverdueJourneysForUser(userId).firstOrNull()
+    }
+
+    override fun getJourneyByIdForUser(id: Long, userId: String): JourneyEntity? {
+        return storage[id]?.takeIf { it.userId == userId }
+    }
+
+    override fun getCompletedOrCancelledJourneysForUser(userId: String): List<JourneyEntity> {
+        return storage.values
+            .filter { it.userId == userId && (it.status == JourneyStatus.COMPLETED.name || it.status == JourneyStatus.CANCELLED.name) }
+            .sortedByDescending { it.startTimestamp }
+    }
+
+    override fun getUnassignedJourneys(): List<JourneyEntity> {
+        return storage.values.filter { it.userId == null }.sortedByDescending { it.startTimestamp }
+    }
+
+    override fun getUnassignedJourneyCount(): Int {
+        return storage.values.count { it.userId == null }
+    }
+
+    override fun assignUnassignedJourneysToUser(userId: String): Int {
+        var count = 0
+        storage.entries.forEach { entry ->
+            val entity = entry.value
+            if (entity.userId == null) {
+                entity.userId = userId
+                storage[entry.key] = entity
+                count++
+            }
+        }
+        return count
+    }
+
     override fun insert(journey: JourneyEntity): Long {
         val assignedId = if (journey.id > 0) journey.id else nextId++
-        val entity = JourneyEntity(
-            assignedId,
-            journey.title,
-            journey.startLocation,
-            journey.destination,
-            journey.startLatitude,
-            journey.startLongitude,
-            journey.destinationLatitude,
-            journey.destinationLongitude,
-            journey.startTimestamp,
-            journey.expectedArrivalTimestamp,
-            journey.completedTimestamp,
-            journey.status,
-            journey.lastCheckInTimestamp,
-            journey.checkInCount,
-            journey.checkInHistory,
-            journey.createdAt,
-            journey.updatedAt
-        )
-        storage[assignedId] = entity
+        journey.id = assignedId
+        storage[assignedId] = journey
         return assignedId
     }
 
@@ -84,6 +111,62 @@ class FakeJourneyDao : JourneyDao {
 
     override fun deleteById(id: Long): Int {
         return if (storage.remove(id) != null) 1 else 0
+    }
+
+    override fun deleteByIdForUser(id: Long, userId: String): Int {
+        val existing = storage[id]
+        return if (existing != null && existing.userId == userId) {
+            storage.remove(id)
+            1
+        } else {
+            0
+        }
+    }
+
+    override fun getActiveMonitoredJourneys(): List<JourneyEntity> {
+        return storage.values.filter { it.isMonitoringActive && (it.status == JourneyStatus.ACTIVE.name || it.status == JourneyStatus.OVERDUE.name) }.sortedByDescending { it.startTimestamp }
+    }
+
+    override fun getActiveMonitoredJourneysForUser(userId: String): List<JourneyEntity> {
+        return storage.values.filter { it.userId == userId && it.isMonitoringActive && (it.status == JourneyStatus.ACTIVE.name || it.status == JourneyStatus.OVERDUE.name) }.sortedByDescending { it.startTimestamp }
+    }
+
+    override fun updateLastLocation(journeyId: Long, lat: Double?, lng: Double?, timestamp: Long): Int {
+        val existing = storage[journeyId] ?: return 0
+        existing.lastLatitude = lat
+        existing.lastLongitude = lng
+        existing.lastLocationTimestamp = timestamp
+        existing.updatedAt = timestamp
+        return 1
+    }
+
+    override fun setMonitoringActive(journeyId: Long, isActive: Boolean, updatedAt: Long): Int {
+        val existing = storage[journeyId] ?: return 0
+        existing.isMonitoringActive = isActive
+        existing.updatedAt = updatedAt
+        return 1
+    }
+
+    override fun markSafetyCheckAcknowledged(journeyId: Long, updatedAt: Long): Int {
+        val existing = storage[journeyId] ?: return 0
+        existing.safetyCheckAcknowledged = true
+        existing.updatedAt = updatedAt
+        return 1
+    }
+
+    override fun markOverdueEscalationAttempted(journeyId: Long, updatedAt: Long): Int {
+        val existing = storage[journeyId] ?: return 0
+        existing.overdueEscalationAttempted = true
+        existing.updatedAt = updatedAt
+        return 1
+    }
+
+    override fun recordSafetyCheckNotification(journeyId: Long, checkTime: Long, deadline: Long, updatedAt: Long): Int {
+        val existing = storage[journeyId] ?: return 0
+        existing.overdueSafetyCheckTimestamp = checkTime
+        existing.overdueEscalationDeadline = deadline
+        existing.updatedAt = updatedAt
+        return 1
     }
 }
 

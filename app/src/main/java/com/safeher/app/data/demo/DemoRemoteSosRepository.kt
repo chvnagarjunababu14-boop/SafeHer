@@ -37,6 +37,7 @@ class DemoRemoteSosRepository(
 
     private val deliveryFlows = ConcurrentHashMap<String, MutableStateFlow<List<RecipientDeliveryInfo>>>()
     private val alertDetailsMap = ConcurrentHashMap<String, RemoteAlertDetails>()
+    private val _authorizedAlertsFlow = MutableStateFlow<List<RemoteAlertDetails>>(emptyList())
 
     var lastDispatchedAlertId: String? = null
         private set
@@ -45,6 +46,7 @@ class DemoRemoteSosRepository(
         demoModeManager.registerResetListener {
             deliveryFlows.clear()
             alertDetailsMap.clear()
+            _authorizedAlertsFlow.value = emptyList()
             lastDispatchedAlertId = null
         }
     }
@@ -86,6 +88,7 @@ class DemoRemoteSosRepository(
             isAcknowledgedByMe = false
         )
         alertDetailsMap[alertId] = details
+        _authorizedAlertsFlow.value = alertDetailsMap.values.toList()
 
         // Simulate asynchronous FCM dispatch sequence in coroutine
         scope.launch {
@@ -128,6 +131,8 @@ class DemoRemoteSosRepository(
         }
         return flow.asStateFlow()
     }
+
+    override fun getAuthorizedAlertsFlow(): Flow<List<RemoteAlertDetails>> = _authorizedAlertsFlow.asStateFlow()
 
     override suspend fun getAlertDetails(alertId: String): Result<RemoteAlertDetails> = withContext(dispatcher) {
         val details = alertDetailsMap[alertId] ?: RemoteAlertDetails(

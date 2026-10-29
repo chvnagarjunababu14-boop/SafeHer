@@ -33,9 +33,12 @@ import androidx.compose.material.icons.filled.Info
 import androidx.compose.material.icons.filled.LocationOn
 import androidx.compose.material.icons.filled.MyLocation
 import androidx.compose.material.icons.filled.Cancel
+import androidx.compose.material.icons.filled.GpsFixed
+import androidx.compose.material.icons.filled.GpsNotFixed
 import androidx.compose.material.icons.filled.Navigation
 import androidx.compose.material.icons.filled.Schedule
 import androidx.compose.material.icons.filled.Search
+import androidx.compose.material.icons.filled.Security
 import androidx.compose.material.icons.filled.Warning
 import androidx.compose.material3.AlertDialog
 import androidx.compose.material3.Button
@@ -44,9 +47,12 @@ import androidx.compose.material3.Card
 import androidx.compose.material3.CardDefaults
 import androidx.compose.material3.CircularProgressIndicator
 import androidx.compose.material3.ExperimentalMaterial3Api
+import androidx.compose.material3.Switch
+import androidx.compose.material3.SwitchDefaults
 import androidx.compose.ui.window.Dialog
 import com.safeher.app.data.journey.JourneyEvent
 import com.safeher.app.data.journey.JourneyEventType
+import com.safeher.app.data.sos.DirectSosState
 import androidx.compose.material3.FilterChip
 import androidx.compose.material3.FilterChipDefaults
 import androidx.compose.material3.HorizontalDivider
@@ -62,6 +68,7 @@ import androidx.compose.material3.TextButton
 import androidx.compose.material3.TopAppBar
 import androidx.compose.material3.TopAppBarDefaults
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.collectAsState
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
@@ -116,9 +123,10 @@ fun JourneysScreen(
         factory = remember(context) {
             object : ViewModelProvider.Factory {
                 override fun <T : ViewModel> create(modelClass: Class<T>): T {
-                    val db = SafeHerDatabase.getInstance(context.applicationContext)
-                    val journeyRepo = JourneyRepositoryImpl(db)
-                    val locationRepo = FusedLocationRepository(context.applicationContext)
+                    val journeyRepo = com.safeher.app.data.RepositoryProvider.getJourneyRepository(context)
+                    val locationRepo = com.safeher.app.data.RepositoryProvider.getLocationRepository(context)
+                    val sosPrefsRepo = com.safeher.app.data.RepositoryProvider.getSosPreferencesRepository(context)
+                    val directSosManager = com.safeher.app.data.RepositoryProvider.getDirectSosManager(context)
                     val placesRepo = GooglePlacesAutocompleteProvider(
                         context.applicationContext,
                         BuildConfig.PLACES_API_KEY
@@ -126,6 +134,8 @@ fun JourneysScreen(
                     @Suppress("UNCHECKED_CAST")
                     return JourneysViewModel(
                         journeyRepository = journeyRepo,
+                        sosPreferencesRepository = sosPrefsRepo,
+                        directSosManager = directSosManager,
                         locationRepository = locationRepo,
                         placesProvider = placesRepo
                     ) as T
@@ -136,14 +146,38 @@ fun JourneysScreen(
 
     val uiState by viewModel.uiState.collectAsState()
 
+    // Service lifecycle triggers
+    LaunchedEffect(uiState.pendingServiceStart) {
+        uiState.pendingServiceStart?.let { req ->
+            com.safeher.app.service.JourneyMonitoringService.start(
+                context = context,
+                journeyId = req.journeyId,
+                destination = req.destination,
+                expectedArrivalTimestamp = req.expectedArrivalTimestamp
+            )
+            viewModel.onServiceStartHandled()
+        }
+    }
+
+    LaunchedEffect(uiState.pendingServiceStop) {
+        uiState.pendingServiceStop?.let { req ->
+            com.safeher.app.service.JourneyMonitoringService.stop(context, req.journeyId)
+            viewModel.onServiceStopHandled()
+        }
+    }
+
     JourneysScreenContent(
         uiState = uiState,
         onBackToHomeClick = onBackToHomeClick,
         onStartJourneyClick = { viewModel.openCreateDialog() },
         onCheckInClick = { id -> viewModel.performCheckIn(id) },
+        onSafetyAcknowledgeClick = { id -> viewModel.acknowledgeSafetyCheck(id) },
+        onNeedHelpClick = { id -> viewModel.triggerNeedHelpSos(id) },
         onExtendClick = { journey -> viewModel.openExtendDialog(journey) },
         onFinishClick = { journey -> viewModel.promptFinishJourney(journey) },
         onCancelClick = { journey -> viewModel.promptCancelJourney(journey) },
+        onSafetySettingsClick = { viewModel.openSafetySettingsDialog() },
+        onToggleMonitoring = { id, active -> viewModel.toggleMonitoring(id, active) },
         onCheckInInfoClick = { viewModel.toggleCheckInInfo(true) },
         onHistoryItemClick = { journey -> viewModel.openJourneyDetails(journey) },
         onDismissFeedback = { viewModel.clearFeedback() },
@@ -205,6 +239,15 @@ fun JourneysScreen(
             onDismiss = { viewModel.toggleCheckInInfo(false) }
         )
     }
+
+    if (uiState.showSafetySettingsDialog) {
+        JourneySafetySettingsDialog(
+            isOverdueEnabled = uiState.sosPreferences.isOverdueEscalationEnabled,
+            isConsentGiven = uiState.sosPreferences.isOverdueEscalationConsentGiven,
+            onToggleEnabled = { viewModel.setOverdueEscalationConsent(it) },
+            onDismiss = { viewModel.dismissSafetySettingsDialog() }
+        )
+    }
 }
 
 @OptIn(ExperimentalMaterial3Api::class)
@@ -214,9 +257,13 @@ fun JourneysScreenContent(
     onBackToHomeClick: () -> Unit,
     onStartJourneyClick: () -> Unit,
     onCheckInClick: (Long) -> Unit,
+    onSafetyAcknowledgeClick: (Long) -> Unit,
+    onNeedHelpClick: (Long) -> Unit,
     onExtendClick: (Journey) -> Unit,
     onFinishClick: (Journey) -> Unit,
     onCancelClick: (Journey) -> Unit,
+    onSafetySettingsClick: () -> Unit,
+    onToggleMonitoring: (Long, Boolean) -> Unit,
     onCheckInInfoClick: () -> Unit,
     onHistoryItemClick: (Journey) -> Unit,
     onDismissFeedback: () -> Unit,
@@ -246,6 +293,15 @@ fun JourneysScreenContent(
                         Icon(
                             imageVector = Icons.AutoMirrored.Filled.ArrowBack,
                             contentDescription = "Back to Home",
+                            tint = SafeHerPurplePrimary
+                        )
+                    }
+                },
+                actions = {
+                    IconButton(onClick = onSafetySettingsClick) {
+                        Icon(
+                            imageVector = Icons.Default.Security,
+                            contentDescription = "Journey Safety Settings",
                             tint = SafeHerPurplePrimary
                         )
                     }
@@ -295,11 +351,16 @@ fun JourneysScreenContent(
                     events = uiState.activeJourneyEvents,
                     isActionInProgress = uiState.isActionInProgress,
                     nowMillis = uiState.currentTimeMillis,
+                    directSosState = uiState.directSosState,
                     onCheckInClick = { onCheckInClick(uiState.activeJourney.id) },
+                    onSafetyAcknowledgeClick = { onSafetyAcknowledgeClick(uiState.activeJourney.id) },
+                    onNeedHelpClick = { onNeedHelpClick(uiState.activeJourney.id) },
                     onExtendClick = { onExtendClick(uiState.activeJourney) },
                     onFinishClick = { onFinishClick(uiState.activeJourney) },
                     onCancelClick = { onCancelClick(uiState.activeJourney) },
-                    onCheckInInfoClick = onCheckInInfoClick
+                    onToggleMonitoring = { active -> onToggleMonitoring(uiState.activeJourney.id, active) },
+                    onCheckInInfoClick = onCheckInInfoClick,
+                    onSafetySettingsClick = onSafetySettingsClick
                 )
                 Spacer(modifier = Modifier.height(20.dp))
             } else {
@@ -447,18 +508,30 @@ fun ActiveJourneyCard(
     events: List<JourneyEvent> = emptyList(),
     isActionInProgress: Boolean = false,
     nowMillis: Long,
+    directSosState: DirectSosState? = null,
     onCheckInClick: () -> Unit,
+    onSafetyAcknowledgeClick: () -> Unit,
+    onNeedHelpClick: () -> Unit,
     onExtendClick: () -> Unit,
     onFinishClick: () -> Unit,
     onCancelClick: () -> Unit,
-    onCheckInInfoClick: () -> Unit
+    onToggleMonitoring: (Boolean) -> Unit,
+    onCheckInInfoClick: () -> Unit,
+    onSafetySettingsClick: () -> Unit
 ) {
     val effectiveStatus = journey.getEffectiveStatus(nowMillis)
     val isOverdue = effectiveStatus == JourneyStatus.OVERDUE
+    val isSafetyCheckPending = journey.isSafetyCheckPending
     val timeFormat = SimpleDateFormat("h:mm a", Locale.getDefault())
     var showTimeline by remember { mutableStateOf(false) }
 
-    val cardBorderColor = if (isOverdue) SafeHerSosCrimson else SafeHerPurpleLight
+    val cardBorderColor = if (journey.overdueEscalationAttempted || isSafetyCheckPending) {
+        SafeHerSosCrimson
+    } else if (isOverdue) {
+        SafeHerSosCrimson
+    } else {
+        SafeHerPurpleLight
+    }
     val cardBg = Color.White
 
     Card(
@@ -481,9 +554,41 @@ fun ActiveJourneyCard(
                 verticalAlignment = Alignment.CenterVertically
             ) {
                 // Status Pill
-                val badgeBg = if (isOverdue) SafeHerSosTrack else SafeHerPurpleContainer
-                val badgeColor = if (isOverdue) SafeHerSosCrimson else SafeHerPurplePrimary
-                val badgeText = if (isOverdue) "OVERDUE" else "ACTIVE JOURNEY"
+                val badgeBg: Color
+                val badgeColor: Color
+                val badgeText: String
+                val badgeIcon = when {
+                    journey.overdueEscalationAttempted -> {
+                        badgeBg = SafeHerSosTrack
+                        badgeColor = SafeHerSosCrimson
+                        badgeText = "SOS DISPATCHED"
+                        Icons.Default.Warning
+                    }
+                    isSafetyCheckPending -> {
+                        badgeBg = SafeHerSosTrack
+                        badgeColor = SafeHerSosCrimson
+                        badgeText = "SAFETY CHECK PENDING"
+                        Icons.Default.Warning
+                    }
+                    isOverdue && journey.safetyCheckAcknowledged -> {
+                        badgeBg = SafeHerPurpleContainer
+                        badgeColor = SafeHerPurplePrimary
+                        badgeText = "OVERDUE (SAFE)"
+                        Icons.Default.CheckCircle
+                    }
+                    isOverdue -> {
+                        badgeBg = SafeHerSosTrack
+                        badgeColor = SafeHerSosCrimson
+                        badgeText = "OVERDUE"
+                        Icons.Default.Warning
+                    }
+                    else -> {
+                        badgeBg = SafeHerPurpleContainer
+                        badgeColor = SafeHerPurplePrimary
+                        badgeText = "ACTIVE JOURNEY"
+                        Icons.Default.Navigation
+                    }
+                }
 
                 Row(
                     modifier = Modifier
@@ -493,7 +598,7 @@ fun ActiveJourneyCard(
                     verticalAlignment = Alignment.CenterVertically
                 ) {
                     Icon(
-                        imageVector = if (isOverdue) Icons.Default.Warning else Icons.Default.Navigation,
+                        imageVector = badgeIcon,
                         contentDescription = null,
                         tint = badgeColor,
                         modifier = Modifier.size(14.dp)
@@ -584,6 +689,64 @@ fun ActiveJourneyCard(
 
             Spacer(modifier = Modifier.height(12.dp))
 
+            // Background Location Monitoring & Freshness indicator
+            Row(
+                modifier = Modifier
+                    .fillMaxWidth()
+                    .clip(RoundedCornerShape(10.dp))
+                    .background(if (journey.isMonitoringActive) SafeHerPurpleContainer.copy(alpha = 0.5f) else SafeHerLavenderBackground)
+                    .padding(horizontal = 12.dp, vertical = 8.dp),
+                horizontalArrangement = Arrangement.SpaceBetween,
+                verticalAlignment = Alignment.CenterVertically
+            ) {
+                Row(
+                    modifier = Modifier.weight(1f),
+                    verticalAlignment = Alignment.CenterVertically
+                ) {
+                    Icon(
+                        imageVector = if (journey.isMonitoringActive) Icons.Default.GpsFixed else Icons.Default.GpsNotFixed,
+                        contentDescription = null,
+                        tint = if (journey.isMonitoringActive) Color(0xFF16A34A) else SafeHerTextSecondary,
+                        modifier = Modifier.size(18.dp)
+                    )
+                    Spacer(modifier = Modifier.width(8.dp))
+                    Column {
+                        Text(
+                            text = if (journey.isMonitoringActive) "Foreground Tracking Active" else "Foreground Tracking Paused",
+                            style = MaterialTheme.typography.labelSmall,
+                            fontWeight = FontWeight.Bold,
+                            color = if (journey.isMonitoringActive) SafeHerPurpleDark else SafeHerTextSecondary
+                        )
+                        val lastLoc = journey.lastLocationTimestamp
+                        if (lastLoc != null) {
+                            val elapsedMin = ((nowMillis - lastLoc) / 60000L).coerceAtLeast(0L)
+                            val freshness = if (journey.isLocationFresh) "Fresh" else "Stale"
+                            Text(
+                                text = "GPS fix: ${elapsedMin}m ago ($freshness)",
+                                style = MaterialTheme.typography.labelSmall,
+                                color = SafeHerTextSecondary
+                            )
+                        } else {
+                            Text(
+                                text = "Awaiting initial GPS fix",
+                                style = MaterialTheme.typography.labelSmall,
+                                color = SafeHerTextSecondary
+                            )
+                        }
+                    }
+                }
+                Switch(
+                    checked = journey.isMonitoringActive,
+                    onCheckedChange = onToggleMonitoring,
+                    colors = SwitchDefaults.colors(
+                        checkedThumbColor = SafeHerPurplePrimary,
+                        checkedTrackColor = SafeHerPurpleLight
+                    )
+                )
+            }
+
+            Spacer(modifier = Modifier.height(12.dp))
+
             // Timestamps row
             Row(
                 modifier = Modifier
@@ -624,8 +787,137 @@ fun ActiveJourneyCard(
 
             Spacer(modifier = Modifier.height(12.dp))
 
+            // Safety Check Pending Banner (Overdue window)
+            if (isSafetyCheckPending) {
+                val remainingEscMs = journey.escalationRemainingMillis(nowMillis)
+                val remainingSec = (remainingEscMs / 1000L).coerceAtLeast(0L)
+                val remainingMinPart = remainingSec / 60L
+                val remainingSecPart = remainingSec % 60L
+                val countdownText = String.format(Locale.getDefault(), "%d:%02d", remainingMinPart, remainingSecPart)
+
+                Card(
+                    modifier = Modifier
+                        .fillMaxWidth()
+                        .border(1.5.dp, SafeHerSosCrimson, RoundedCornerShape(12.dp)),
+                    shape = RoundedCornerShape(12.dp),
+                    colors = CardDefaults.cardColors(containerColor = SafeHerSosTrack)
+                ) {
+                    Column(
+                        modifier = Modifier
+                            .fillMaxWidth()
+                            .padding(14.dp)
+                    ) {
+                        Row(verticalAlignment = Alignment.CenterVertically) {
+                            Icon(
+                                imageVector = Icons.Default.Warning,
+                                contentDescription = null,
+                                tint = SafeHerSosCrimson,
+                                modifier = Modifier.size(20.dp)
+                            )
+                            Spacer(modifier = Modifier.width(8.dp))
+                            Text(
+                                text = "Safety Check: Are You Safe?",
+                                style = MaterialTheme.typography.titleMedium,
+                                fontWeight = FontWeight.Bold,
+                                color = SafeHerSosCrimson
+                            )
+                        }
+                        Spacer(modifier = Modifier.height(6.dp))
+                        Text(
+                            text = "You are past your expected arrival time. If you do not respond within $countdownText, an automatic SOS SMS will be sent to your guardians.",
+                            style = MaterialTheme.typography.bodySmall,
+                            color = SafeHerTextPrimary
+                        )
+                        Spacer(modifier = Modifier.height(12.dp))
+                        Row(
+                            modifier = Modifier.fillMaxWidth(),
+                            horizontalArrangement = Arrangement.spacedBy(10.dp)
+                        ) {
+                            Button(
+                                onClick = onSafetyAcknowledgeClick,
+                                modifier = Modifier.weight(1f),
+                                colors = ButtonDefaults.buttonColors(containerColor = Color(0xFF16A34A)),
+                                shape = RoundedCornerShape(10.dp)
+                            ) {
+                                Icon(Icons.Default.CheckCircle, contentDescription = null, modifier = Modifier.size(16.dp))
+                                Spacer(modifier = Modifier.width(4.dp))
+                                Text("I'm Safe", fontWeight = FontWeight.Bold)
+                            }
+                            Button(
+                                onClick = onNeedHelpClick,
+                                modifier = Modifier.weight(1f),
+                                colors = ButtonDefaults.buttonColors(containerColor = SafeHerSosCrimson),
+                                shape = RoundedCornerShape(10.dp)
+                            ) {
+                                Icon(Icons.Default.Warning, contentDescription = null, modifier = Modifier.size(16.dp))
+                                Spacer(modifier = Modifier.width(4.dp))
+                                Text("Need Help", fontWeight = FontWeight.Bold)
+                            }
+                        }
+                    }
+                }
+                Spacer(modifier = Modifier.height(12.dp))
+            }
+
+            // Automatic Overdue SOS Result Banner
+            if (journey.overdueEscalationAttempted) {
+                Card(
+                    modifier = Modifier
+                        .fillMaxWidth()
+                        .border(1.dp, SafeHerSosCrimson, RoundedCornerShape(12.dp)),
+                    shape = RoundedCornerShape(12.dp),
+                    colors = CardDefaults.cardColors(containerColor = SafeHerSosTrack)
+                ) {
+                    Column(
+                        modifier = Modifier
+                            .fillMaxWidth()
+                            .padding(12.dp)
+                    ) {
+                        Row(verticalAlignment = Alignment.CenterVertically) {
+                            Icon(
+                                imageVector = Icons.Default.Warning,
+                                contentDescription = null,
+                                tint = SafeHerSosCrimson,
+                                modifier = Modifier.size(18.dp)
+                            )
+                            Spacer(modifier = Modifier.width(6.dp))
+                            Text(
+                                text = "Automatic Overdue SOS Dispatched",
+                                style = MaterialTheme.typography.bodyMedium,
+                                fontWeight = FontWeight.Bold,
+                                color = SafeHerSosCrimson
+                            )
+                        }
+                        Spacer(modifier = Modifier.height(4.dp))
+                        Text(
+                            text = "The 5-minute safety response window elapsed. SafeHer attempted direct emergency SMS dispatch to your enabled guardians.",
+                            style = MaterialTheme.typography.bodySmall,
+                            color = SafeHerTextPrimary
+                        )
+                        if (directSosState is DirectSosState.Completed) {
+                            Spacer(modifier = Modifier.height(8.dp))
+                            Text(
+                                text = "Recipient Dispatches: ${directSosState.submittedCount} sent, ${directSosState.failedCount} failed",
+                                style = MaterialTheme.typography.labelSmall,
+                                fontWeight = FontWeight.SemiBold,
+                                color = SafeHerTextPrimary
+                            )
+                        } else if (directSosState is DirectSosState.Dispatching) {
+                            Spacer(modifier = Modifier.height(8.dp))
+                            Text(
+                                text = "Dispatching emergency SMS alerts...",
+                                style = MaterialTheme.typography.labelSmall,
+                                fontWeight = FontWeight.SemiBold,
+                                color = SafeHerTextPrimary
+                            )
+                        }
+                    }
+                }
+                Spacer(modifier = Modifier.height(12.dp))
+            }
+
             // Contextual Safety Guidance Notice
-            if (isOverdue) {
+            if (isOverdue && !isSafetyCheckPending && !journey.overdueEscalationAttempted) {
                 Card(
                     modifier = Modifier.fillMaxWidth(),
                     shape = RoundedCornerShape(10.dp),
@@ -651,7 +943,7 @@ fun ActiveJourneyCard(
                     }
                 }
                 Spacer(modifier = Modifier.height(12.dp))
-            } else if (journey.remainingMillis(nowMillis) <= 5 * 60 * 1000L) {
+            } else if (journey.remainingMillis(nowMillis) <= 5 * 60 * 1000L && !isOverdue) {
                 Card(
                     modifier = Modifier.fillMaxWidth(),
                     shape = RoundedCornerShape(10.dp),
@@ -993,6 +1285,9 @@ fun TimelineEventItem(event: JourneyEvent) {
         JourneyEventType.CHECK_IN -> Triple(Icons.Default.CheckCircle, Color(0xFF16A34A), Color(0xFFDCFCE7))
         JourneyEventType.ETA_EXTENDED -> Triple(Icons.Default.Alarm, SafeHerPurplePrimary, SafeHerPurpleContainer)
         JourneyEventType.OVERDUE_OBSERVED -> Triple(Icons.Default.Warning, SafeHerSosCrimson, SafeHerSosTrack)
+        JourneyEventType.OVERDUE_SAFETY_CHECK_SENT -> Triple(Icons.Default.Warning, SafeHerSosCrimson, SafeHerSosTrack)
+        JourneyEventType.SAFETY_ACKNOWLEDGED -> Triple(Icons.Default.CheckCircle, Color(0xFF16A34A), Color(0xFFDCFCE7))
+        JourneyEventType.OVERDUE_ESCALATION_SOS -> Triple(Icons.Default.Warning, SafeHerSosCrimson, SafeHerSosTrack)
         JourneyEventType.COMPLETED -> Triple(Icons.Default.CheckCircle, Color(0xFF16A34A), Color(0xFFDCFCE7))
         JourneyEventType.CANCELLED -> Triple(Icons.Default.Cancel, SafeHerTextSecondary, SafeHerLavenderBackground)
     }
@@ -1810,7 +2105,7 @@ fun CheckInTransparencyDialog(
                 )
                 Spacer(modifier = Modifier.height(10.dp))
                 Text(
-                    text = "Important Transparency Notice:\nCheck-ins and safety events are stored strictly on your local device. SafeHer does NOT send SMS messages, transmit your location, or alert your guardians at this time.",
+                    text = "Important Transparency Notice:\nCheck-ins and safety events are stored strictly on your local device. Tapping \"I'm Safe\" confirms you are safe and cancels any pending overdue escalation. Emergency SMS is only sent if a monitored journey becomes overdue, 5 minutes pass without response, and automatic escalation is enabled in Safety Settings.",
                     style = MaterialTheme.typography.bodySmall,
                     color = SafeHerTextSecondary
                 )
@@ -1829,3 +2124,135 @@ fun CheckInTransparencyDialog(
         containerColor = Color.White
     )
 }
+
+@Composable
+fun JourneySafetySettingsDialog(
+    isOverdueEnabled: Boolean,
+    isConsentGiven: Boolean,
+    onToggleEnabled: (Boolean) -> Unit,
+    onDismiss: () -> Unit
+) {
+    AlertDialog(
+        onDismissRequest = onDismiss,
+        title = {
+            Row(verticalAlignment = Alignment.CenterVertically) {
+                Icon(
+                    imageVector = Icons.Default.Security,
+                    contentDescription = null,
+                    tint = SafeHerPurplePrimary
+                )
+                Spacer(modifier = Modifier.width(8.dp))
+                Text(
+                    text = "Journey Safety Settings",
+                    style = MaterialTheme.typography.titleMedium,
+                    fontWeight = FontWeight.Bold,
+                    color = SafeHerTextPrimary
+                )
+            }
+        },
+        text = {
+            Column(
+                modifier = Modifier
+                    .fillMaxWidth()
+                    .verticalScroll(rememberScrollState())
+            ) {
+                Text(
+                    text = "How SafeHer Protects Your Journey",
+                    style = MaterialTheme.typography.titleSmall,
+                    fontWeight = FontWeight.Bold,
+                    color = SafeHerPurpleDark
+                )
+                Spacer(modifier = Modifier.height(8.dp))
+
+                SafetyExplainerItem(
+                    title = "1. Background Location Tracking",
+                    description = "When a journey is active, SafeHer monitors your GPS coordinates via a foreground service with an ongoing notification. No locations are uploaded to remote servers."
+                )
+
+                SafetyExplainerItem(
+                    title = "2. Overdue Safety Check",
+                    description = "If you do not complete your journey by the expected arrival time, SafeHer issues a high-priority safety notification asking if you are safe."
+                )
+
+                SafetyExplainerItem(
+                    title = "3. 5-Minute SOS Escalation",
+                    description = "If you do not respond to the safety check within 5 minutes, SafeHer automatically attempts to send a direct SOS SMS to your selected guardians."
+                )
+
+                SafetyExplainerItem(
+                    title = "4. Carrier Charges",
+                    description = "Emergency SMS messages are sent directly from your device using your cellular plan. Standard carrier messaging charges apply."
+                )
+
+                SafetyExplainerItem(
+                    title = "5. Device & Android Limitations",
+                    description = "Android battery optimization, Doze mode, or task killing may delay notifications or background dispatch. Delivery cannot be guaranteed under extreme OS restrictions."
+                )
+
+                Spacer(modifier = Modifier.height(14.dp))
+                HorizontalDivider(color = SafeHerBorderLavender)
+                Spacer(modifier = Modifier.height(14.dp))
+
+                Row(
+                    modifier = Modifier.fillMaxWidth(),
+                    horizontalArrangement = Arrangement.SpaceBetween,
+                    verticalAlignment = Alignment.CenterVertically
+                ) {
+                    Column(modifier = Modifier.weight(1f)) {
+                        Text(
+                            text = "Automatic Overdue SOS",
+                            style = MaterialTheme.typography.bodyMedium,
+                            fontWeight = FontWeight.Bold,
+                            color = SafeHerTextPrimary
+                        )
+                        Text(
+                            text = "Send direct SMS to guardians if 5-minute safety check expires without response",
+                            style = MaterialTheme.typography.bodySmall,
+                            color = SafeHerTextSecondary
+                        )
+                    }
+                    Switch(
+                        checked = isOverdueEnabled,
+                        onCheckedChange = onToggleEnabled,
+                        colors = SwitchDefaults.colors(
+                            checkedThumbColor = SafeHerPurplePrimary,
+                            checkedTrackColor = SafeHerPurpleLight
+                        )
+                    )
+                }
+            }
+        },
+        confirmButton = {
+            Button(
+                onClick = onDismiss,
+                colors = ButtonDefaults.buttonColors(containerColor = SafeHerPurplePrimary),
+                shape = RoundedCornerShape(10.dp)
+            ) {
+                Text("Done", fontWeight = FontWeight.Bold)
+            }
+        },
+        shape = RoundedCornerShape(20.dp),
+        containerColor = Color.White
+    )
+}
+
+@Composable
+private fun SafetyExplainerItem(
+    title: String,
+    description: String
+) {
+    Column(modifier = Modifier.padding(vertical = 4.dp)) {
+        Text(
+            text = title,
+            style = MaterialTheme.typography.labelMedium,
+            fontWeight = FontWeight.SemiBold,
+            color = SafeHerTextPrimary
+        )
+        Text(
+            text = description,
+            style = MaterialTheme.typography.bodySmall,
+            color = SafeHerTextSecondary
+        )
+    }
+}
+

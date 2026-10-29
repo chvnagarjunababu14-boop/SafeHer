@@ -8,6 +8,12 @@
     <uses-permission android:name="android.permission.ACCESS_COARSE_LOCATION" />
     <uses-permission android:name="android.permission.READ_CONTACTS" />
     <uses-permission android:name="android.permission.POST_NOTIFICATIONS" />
+    <uses-permission android:name="android.permission.SEND_SMS" />
+    <uses-permission android:name="android.permission.FOREGROUND_SERVICE" />
+    <uses-permission android:name="android.permission.FOREGROUND_SERVICE_LOCATION" />
+    <uses-permission android:name="android.permission.SCHEDULE_EXACT_ALARM" />
+    <uses-permission android:name="android.permission.USE_EXACT_ALARM" />
+    <uses-permission android:name="android.permission.RECEIVE_BOOT_COMPLETED" />
 
     <application
         android:allowBackup="true"
@@ -25,6 +31,43 @@
                 <category android:name="android.intent.category.LAUNCHER" />
             </intent-filter>
         </activity>
+
+        <!-- Background Location Monitoring Service -->
+        <service
+            android:name=".service.JourneyMonitoringService"
+            android:exported="false"
+            android:foregroundServiceType="location" />
+
+        <!-- Overdue Journey Alarm Receiver -->
+        <receiver
+            android:name=".receiver.JourneyAlarmReceiver"
+            android:exported="false">
+            <intent-filter>
+                <action android:name="com.safeher.app.receiver.ACTION_CHECK_OVERDUE" />
+                <action android:name="com.safeher.app.receiver.ACTION_ESCALATE_OVERDUE_SOS" />
+            </intent-filter>
+        </receiver>
+
+        <!-- Journey Safety Action Receiver (Notification buttons: I'm Safe, Need Help, Stop) -->
+        <receiver
+            android:name=".receiver.JourneySafetyActionReceiver"
+            android:exported="false">
+            <intent-filter>
+                <action android:name="com.safeher.app.receiver.ACTION_USER_SAFE" />
+                <action android:name="com.safeher.app.receiver.ACTION_USER_NEED_HELP" />
+                <action android:name="com.safeher.app.receiver.ACTION_STOP_MONITORING" />
+            </intent-filter>
+        </receiver>
+
+        <!-- Boot Completed Receiver to reconcile active journeys on restart -->
+        <receiver
+            android:name=".receiver.BootCompletedReceiver"
+            android:exported="true">
+            <intent-filter>
+                <action android:name="android.intent.action.BOOT_COMPLETED" />
+                <action android:name="android.intent.action.MY_PACKAGE_REPLACED" />
+            </intent-filter>
+        </receiver>
 
         <service
             android:name=".service.SafeHerMessagingService"

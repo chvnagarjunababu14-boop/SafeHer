@@ -14,7 +14,6 @@ import androidx.compose.foundation.layout.navigationBarsPadding
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.shape.CircleShape
-import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.automirrored.filled.DirectionsWalk
 import androidx.compose.material.icons.filled.Home
@@ -35,10 +34,10 @@ import androidx.compose.ui.res.stringResource
 import androidx.compose.ui.semantics.Role
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
-import androidx.compose.ui.unit.sp
 import com.safeher.app.R
 import com.safeher.app.ui.screens.home.HomeTab
 import com.safeher.app.ui.theme.SafeHerBorderLavender
+import com.safeher.app.ui.theme.SafeHerDimens
 import com.safeher.app.ui.theme.SafeHerPurpleContainer
 import com.safeher.app.ui.theme.SafeHerPurplePrimary
 import com.safeher.app.ui.theme.SafeHerSurfaceWhite
@@ -67,17 +66,27 @@ fun SafeHerBottomBar(
     Surface(
         modifier = modifier
             .fillMaxWidth()
-            .border(1.dp, SafeHerBorderLavender, RoundedCornerShape(topStart = 24.dp, topEnd = 24.dp)),
+            .border(
+                1.dp,
+                SafeHerBorderLavender,
+                MaterialTheme.shapes.large.copy(
+                    bottomStart = androidx.compose.foundation.shape.CornerSize(0.dp),
+                    bottomEnd = androidx.compose.foundation.shape.CornerSize(0.dp)
+                )
+            ),
         color = SafeHerSurfaceWhite,
-        shape = RoundedCornerShape(topStart = 24.dp, topEnd = 24.dp),
-        shadowElevation = 8.dp
+        shape = MaterialTheme.shapes.large.copy(
+            bottomStart = androidx.compose.foundation.shape.CornerSize(0.dp),
+            bottomEnd = androidx.compose.foundation.shape.CornerSize(0.dp)
+        ),
+        shadowElevation = SafeHerDimens.elevationHigh
     ) {
         Row(
             modifier = Modifier
                 .fillMaxWidth()
                 .navigationBarsPadding()
-                .height(68.dp)
-                .padding(horizontal = 8.dp),
+                .height(SafeHerDimens.bottomBarHeight)
+                .padding(horizontal = SafeHerDimens.spaceXs),
             horizontalArrangement = Arrangement.SpaceAround,
             verticalAlignment = Alignment.CenterVertically
         ) {
@@ -93,13 +102,13 @@ fun SafeHerBottomBar(
                 Box(
                     modifier = Modifier
                         .weight(1f)
-                        .clip(RoundedCornerShape(16.dp))
+                        .clip(MaterialTheme.shapes.small)
                         .clickable(
                             role = Role.Tab,
                             onClickLabel = label,
                             onClick = { onTabSelected(item.tab) }
                         )
-                        .padding(vertical = 6.dp),
+                        .padding(vertical = SafeHerDimens.spaceXxs),
                     contentAlignment = Alignment.Center
                 ) {
                     Column(
@@ -117,7 +126,7 @@ fun SafeHerBottomBar(
                                 imageVector = item.icon,
                                 contentDescription = null,
                                 tint = iconColor,
-                                modifier = Modifier.size(22.dp)
+                                modifier = Modifier.size(SafeHerDimens.iconMd)
                             )
                         }
 
@@ -125,8 +134,7 @@ fun SafeHerBottomBar(
                             text = label,
                             style = MaterialTheme.typography.labelSmall,
                             color = iconColor,
-                            fontWeight = if (isSelected) FontWeight.Bold else FontWeight.Medium,
-                            fontSize = 11.sp
+                            fontWeight = if (isSelected) FontWeight.Bold else FontWeight.Medium
                         )
                     }
                 }

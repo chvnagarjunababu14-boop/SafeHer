@@ -28,6 +28,8 @@ class FakeRemoteGuardianRepository : RemoteGuardianRepository {
 
     override fun getRemoteGuardiansFlow(): Flow<List<RemoteGuardian>> = flow
 
+    override fun getGuardedUsersFlow(): Flow<List<RemoteGuardian>> = flow
+
     override suspend fun createInvitation(): Result<GuardianInvite> {
         return Result.success(GuardianInvite("inv_1", "SAFE1234", System.currentTimeMillis() + 100000))
     }
@@ -95,6 +97,9 @@ class FakeRemoteSosRepository : RemoteSosRepository {
     }
 
     override fun observeDeliveryStatuses(alertId: String): Flow<List<RecipientDeliveryInfo>> = deliveryFlow
+
+    private val authorizedAlertsFlow = MutableStateFlow<List<RemoteAlertDetails>>(emptyList())
+    override fun getAuthorizedAlertsFlow(): Flow<List<RemoteAlertDetails>> = authorizedAlertsFlow
 
     override suspend fun getAlertDetails(alertId: String): Result<RemoteAlertDetails> {
         return Result.success(

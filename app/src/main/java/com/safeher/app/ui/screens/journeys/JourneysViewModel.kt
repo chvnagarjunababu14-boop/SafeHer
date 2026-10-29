@@ -14,6 +14,10 @@ import com.safeher.app.data.places.PlaceSuggestion
 import com.safeher.app.data.places.PlacesAutocompleteProvider
 import com.safeher.app.data.places.ResolvedPlace
 import com.safeher.app.data.journey.JourneyEvent
+import com.safeher.app.data.sos.DirectSosManager
+import com.safeher.app.data.sos.DirectSosState
+import com.safeher.app.data.sos.SosPreferences
+import com.safeher.app.data.sos.SosPreferencesRepository
 import kotlinx.coroutines.CoroutineDispatcher
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.Job
@@ -29,6 +33,16 @@ import kotlinx.coroutines.launch
 import java.text.SimpleDateFormat
 import java.util.Date
 import java.util.Locale
+
+data class JourneyServiceStartRequest(
+    val journeyId: Long,
+    val destination: String,
+    val expectedArrivalTimestamp: Long
+)
+
+data class JourneyServiceStopRequest(
+    val journeyId: Long
+)
 
 data class CreateJourneyFormState(
     val isOpen: Boolean = false,
@@ -76,12 +90,19 @@ data class JourneysUiState(
     val selectedJourneyForDetails: Journey? = null,
     val selectedJourneyEvents: List<JourneyEvent> = emptyList(),
     val showCheckInInfo: Boolean = false,
+    val showSafetySettingsDialog: Boolean = false,
+    val sosPreferences: SosPreferences = SosPreferences(),
+    val directSosState: DirectSosState = DirectSosState.Idle,
+    val pendingServiceStart: JourneyServiceStartRequest? = null,
+    val pendingServiceStop: JourneyServiceStopRequest? = null,
     val feedbackMessage: String? = null,
     val errorMessage: String? = null
 )
 
 class JourneysViewModel(
     private val journeyRepository: JourneyRepository,
+    private val sosPreferencesRepository: SosPreferencesRepository? = null,
+    private val directSosManager: DirectSosManager? = null,
     private val locationRepository: LocationRepository? = null,
     private val placesProvider: PlacesAutocompleteProvider? = null,
     private val dispatcher: CoroutineDispatcher = Dispatchers.Main,
@@ -99,7 +120,21 @@ class JourneysViewModel(
 
     init {
         observeJourneys()
+        observePreferences()
+        observeSosState()
         startClockTicker()
+    }
+
+    private fun observePreferences() {
+        sosPreferencesRepository?.preferencesFlow?.onEach { prefs ->
+            _uiState.update { it.copy(sosPreferences = prefs) }
+        }?.launchIn(scope)
+    }
+
+    private fun observeSosState() {
+        directSosManager?.state?.onEach { sosState ->
+            _uiState.update { it.copy(directSosState = sosState) }
+        }?.launchIn(scope)
     }
 
     private fun observeJourneys() {
@@ -566,7 +601,12 @@ class JourneysViewModel(
                         _uiState.update {
                             it.copy(
                                 createForm = CreateJourneyFormState(isOpen = false),
-                                feedbackMessage = "Safety journey started. Keep your phone accessible.",
+                                pendingServiceStart = JourneyServiceStartRequest(
+                                    journeyId = res.journeyId,
+                                    destination = trimmedDest,
+                                    expectedArrivalTimestamp = form.expectedArrivalMillis
+                                ),
+                                feedbackMessage = "Safety journey started. Background location monitoring active.",
                                 errorMessage = null
                             )
                         }
@@ -737,6 +777,7 @@ class JourneysViewModel(
                             it.copy(
                                 finishConfirmJourney = null,
                                 activeJourneyEvents = emptyList(),
+                                pendingServiceStop = JourneyServiceStopRequest(journey.id),
                                 feedbackMessage = "Arrived safely! Journey completed.",
                                 errorMessage = null
                             )
@@ -781,6 +822,7 @@ class JourneysViewModel(
                             it.copy(
                                 cancelConfirmJourney = null,
                                 activeJourneyEvents = emptyList(),
+                                pendingServiceStop = JourneyServiceStopRequest(journey.id),
                                 feedbackMessage = "Journey cancelled and moved to history.",
                                 errorMessage = null
                             )
@@ -802,6 +844,80 @@ class JourneysViewModel(
                 _uiState.update { it.copy(isActionInProgress = false) }
             }
         }
+    }
+
+    fun acknowledgeSafetyCheck(journeyId: Long) {
+        if (_uiState.value.isActionInProgress) return
+        _uiState.update { it.copy(isActionInProgress = true) }
+        scope.launch(dispatcher) {
+            try {
+                when (val res = journeyRepository.acknowledgeSafetyCheck(journeyId)) {
+                    is JourneyOperationResult.Success -> {
+                        val events = journeyRepository.getEventsForJourney(journeyId)
+                        _uiState.update {
+                            it.copy(
+                                activeJourneyEvents = events,
+                                feedbackMessage = "Safety confirmed! Overdue emergency SOS has been cancelled.",
+                                errorMessage = null
+                            )
+                        }
+                    }
+                    else -> {
+                        _uiState.update { it.copy(errorMessage = res.message) }
+                    }
+                }
+            } finally {
+                _uiState.update { it.copy(isActionInProgress = false) }
+            }
+        }
+    }
+
+    fun triggerNeedHelpSos(journeyId: Long) {
+        scope.launch(dispatcher) {
+            _uiState.update { it.copy(isActionInProgress = true) }
+            journeyRepository.acknowledgeSafetyCheck(journeyId)
+            directSosManager?.triggerImmediateSos()
+            _uiState.update { it.copy(isActionInProgress = false) }
+        }
+    }
+
+    fun openSafetySettingsDialog() {
+        _uiState.update { it.copy(showSafetySettingsDialog = true) }
+    }
+
+    fun dismissSafetySettingsDialog() {
+        _uiState.update { it.copy(showSafetySettingsDialog = false) }
+    }
+
+    fun setOverdueEscalationConsent(enabled: Boolean) {
+        sosPreferencesRepository?.setOverdueEscalationConsent(enabled)
+        sosPreferencesRepository?.setOverdueEscalationEnabled(enabled)
+    }
+
+    fun toggleMonitoring(journeyId: Long, active: Boolean) {
+        scope.launch(dispatcher) {
+            journeyRepository.setMonitoringActive(journeyId, active)
+            if (active) {
+                val j = _uiState.value.activeJourney
+                if (j != null) {
+                    _uiState.update {
+                        it.copy(pendingServiceStart = JourneyServiceStartRequest(j.id, j.destination, j.expectedArrivalTimestamp))
+                    }
+                }
+            } else {
+                _uiState.update {
+                    it.copy(pendingServiceStop = JourneyServiceStopRequest(journeyId))
+                }
+            }
+        }
+    }
+
+    fun onServiceStartHandled() {
+        _uiState.update { it.copy(pendingServiceStart = null) }
+    }
+
+    fun onServiceStopHandled() {
+        _uiState.update { it.copy(pendingServiceStop = null) }
     }
 
     fun openJourneyDetails(journey: Journey) {

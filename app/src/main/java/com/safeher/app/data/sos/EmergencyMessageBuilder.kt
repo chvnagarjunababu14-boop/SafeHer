@@ -2,8 +2,13 @@ package com.safeher.app.data.sos
 
 import android.content.Intent
 import android.net.Uri
+import com.safeher.app.data.battery.BatteryInfo
+import com.safeher.app.data.battery.BatteryInfoFormatter
 import com.safeher.app.data.guardian.Guardian
 import com.safeher.app.data.location.LocationData
+import java.text.SimpleDateFormat
+import java.util.Date
+import java.util.Locale
 
 /**
  * Pure, testable helper responsible for formatting emergency messages,
@@ -19,6 +24,58 @@ object EmergencyMessageBuilder {
     const val DEFAULT_EMERGENCY_PREFIX = "EMERGENCY: I need help right now."
     const val LOCATION_UNAVAILABLE_FALLBACK = "Location: Unavailable (signal unavailable or permission denied)."
     const val SMS_FOOTER = "[Sent via SafeHer user-confirmed SMS]"
+    const val BATTERY_ALERT_FOOTER = "[SafeHer battery safety alert — not an SOS]"
+
+    private fun formatTimestamp(millis: Long): String {
+        return SimpleDateFormat("yyyy-MM-dd h:mm a", Locale.getDefault()).format(Date(millis))
+    }
+
+    private fun formatLocationAge(location: LocationData, nowMillis: Long): String {
+        val ageMinutes = ((nowMillis - location.timestampMillis).coerceAtLeast(0L) / 60_000L)
+        return when {
+            ageMinutes < 1L -> "just now"
+            ageMinutes == 1L -> "1 minute ago"
+            ageMinutes < 60L -> "$ageMinutes minutes ago"
+            else -> formatTimestamp(location.timestampMillis)
+        }
+    }
+
+    private fun appendBatteryAndTime(
+        parts: MutableList<String>,
+        batteryInfo: BatteryInfo?,
+        alertTimestampMillis: Long
+    ) {
+        if (batteryInfo != null) {
+            parts.add(BatteryInfoFormatter.formatPercentLine(batteryInfo))
+            parts.add(BatteryInfoFormatter.formatChargingLine(batteryInfo))
+        }
+        parts.add("Time: ${formatTimestamp(alertTimestampMillis)}")
+    }
+
+    private fun appendLocationBlock(
+        parts: MutableList<String>,
+        location: LocationData?,
+        includeLocation: Boolean,
+        nowMillis: Long,
+        allowStaleLastKnown: Boolean = false
+    ) {
+        if (!includeLocation) return
+        val usable = when {
+            location == null -> null
+            !location.isStale -> location
+            allowStaleLastKnown -> location
+            else -> null
+        }
+        if (usable != null) {
+            val lat = String.format(Locale.US, "%.6f", usable.latitude)
+            val lng = String.format(Locale.US, "%.6f", usable.longitude)
+            val label = if (usable.isStale) "Last known location" else "Location"
+            parts.add("$label: https://maps.google.com/?q=$lat,$lng")
+            parts.add("Location updated: ${formatLocationAge(usable, nowMillis)}")
+        } else {
+            parts.add(LOCATION_UNAVAILABLE_FALLBACK)
+        }
+    }
 
     /**
      * Builds a concise, clear emergency SMS body.
@@ -67,6 +124,107 @@ object EmergencyMessageBuilder {
         // 5. Honest disclaimer footer
         parts.add(SMS_FOOTER)
 
+        return parts.joinToString("\n\n")
+    }
+
+    /**
+     * Builds a direct SOS SMS text using the user's configured message,
+     * battery state captured at dispatch, timestamp, and optional location link.
+     */
+    fun buildDirectSosMessage(
+        customMessage: String? = null,
+        location: LocationData? = null,
+        includeLocation: Boolean = true,
+        batteryInfo: BatteryInfo? = null,
+        alertTimestampMillis: Long = System.currentTimeMillis()
+    ): String {
+        val baseMessage = customMessage?.trim()?.ifBlank { null }
+            ?: "I NEED HELP. This is an emergency. Please contact me as soon as possible."
+
+        val parts = mutableListOf<String>()
+        parts.add("SAFEHER SOS ALERT")
+        parts.add(baseMessage)
+        appendBatteryAndTime(parts, batteryInfo, alertTimestampMillis)
+        appendLocationBlock(parts, location, includeLocation, alertTimestampMillis, allowStaleLastKnown = false)
+        return parts.joinToString("\n")
+    }
+
+    /**
+     * Builds a low/critical battery warning SMS that is distinct from emergency SOS.
+     */
+    fun buildBatteryAlertMessage(
+        kind: BatteryAlertKind,
+        batteryInfo: BatteryInfo,
+        location: LocationData? = null,
+        includeLocation: Boolean = false,
+        alertTimestampMillis: Long = System.currentTimeMillis()
+    ): String {
+        val parts = mutableListOf<String>()
+        parts.add(
+            when (kind) {
+                BatteryAlertKind.LOW -> "SAFEHER LOW BATTERY ALERT"
+                BatteryAlertKind.CRITICAL -> "SAFEHER CRITICAL BATTERY ALERT"
+            }
+        )
+        parts.add(
+            when (kind) {
+                BatteryAlertKind.LOW ->
+                    "My phone battery is low. This is a safety check-in, not an SOS."
+                BatteryAlertKind.CRITICAL ->
+                    "My phone battery is critically low and may power off soon. " +
+                        "This is a best-effort warning — delivery is not guaranteed if the device shuts down."
+            }
+        )
+        appendBatteryAndTime(parts, batteryInfo, alertTimestampMillis)
+        if (includeLocation) {
+            appendLocationBlock(
+                parts,
+                location,
+                includeLocation = true,
+                nowMillis = alertTimestampMillis,
+                allowStaleLastKnown = true
+            )
+        }
+        parts.add(BATTERY_ALERT_FOOTER)
+        return parts.joinToString("\n")
+    }
+
+    enum class BatteryAlertKind {
+        LOW,
+        CRITICAL
+    }
+
+    /**
+     * Builds an emergency SMS body specifically for automated overdue journey escalation.
+     * Includes destination, original ETA, overdue duration, and fresh location link if available.
+     */
+    fun buildOverdueSosMessage(
+        destination: String,
+        expectedArrivalTimestamp: Long,
+        overdueMinutes: Long = 5,
+        location: LocationData? = null,
+        includeLocation: Boolean = true
+    ): String {
+        val timeFormat = java.text.SimpleDateFormat("h:mm a", java.util.Locale.getDefault())
+        val etaStr = timeFormat.format(java.util.Date(expectedArrivalTimestamp))
+        val parts = mutableListOf<String>()
+
+        parts.add("EMERGENCY: SafeHer Overdue Alert.")
+        parts.add("I have not checked in and am $overdueMinutes+ minutes overdue arriving at $destination (Expected: $etaStr). Please contact me immediately.")
+
+        if (includeLocation) {
+            if (location != null && !location.isStale) {
+                val lat = String.format(java.util.Locale.US, "%.6f", location.latitude)
+                val lng = String.format(java.util.Locale.US, "%.6f", location.longitude)
+                val acc = location.accuracyMeters.toInt()
+                val accuracyInfo = if (acc > 0) " (±${acc}m)" else ""
+                parts.add("Last Known Location: https://maps.google.com/?q=$lat,$lng$accuracyInfo")
+            } else {
+                parts.add(LOCATION_UNAVAILABLE_FALLBACK)
+            }
+        }
+
+        parts.add("[Automated SafeHer Overdue Escalation SMS]")
         return parts.joinToString("\n\n")
     }
 

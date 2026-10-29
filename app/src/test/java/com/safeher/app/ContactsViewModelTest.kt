@@ -15,6 +15,7 @@ import com.safeher.app.ui.screens.contacts.ImportedContact
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.flow.Flow
 import kotlinx.coroutines.flow.MutableStateFlow
+import kotlinx.coroutines.flow.map
 import org.junit.Assert.assertEquals
 import org.junit.Assert.assertFalse
 import org.junit.Assert.assertNotNull
@@ -111,6 +112,34 @@ class FakeGuardianRepository : GuardianRepository {
 
     override suspend fun getGuardianById(id: Long): Guardian? {
         return guardians.find { it.id == id }
+    }
+
+    override suspend fun updateSosEnabled(id: Long, isSosEnabled: Boolean): Boolean {
+        val index = guardians.indexOfFirst { it.id == id }
+        if (index == -1) return false
+        guardians[index] = guardians[index].copy(isSosEnabled = isSosEnabled)
+        update()
+        return true
+    }
+
+    override suspend fun getSosEnabledGuardians(): List<Guardian> {
+        return guardians.filter { it.isSosEnabled }
+    }
+
+    override fun getSosEnabledGuardiansFlow(): Flow<List<Guardian>> {
+        return flow.map { list -> list.filter { it.isSosEnabled } }
+    }
+
+    override suspend fun updateBatteryAlertEnabled(id: Long, isBatteryAlertEnabled: Boolean): Boolean {
+        val index = guardians.indexOfFirst { it.id == id }
+        if (index == -1) return false
+        guardians[index] = guardians[index].copy(isBatteryAlertEnabled = isBatteryAlertEnabled)
+        update()
+        return true
+    }
+
+    override suspend fun getBatteryAlertEnabledGuardians(): List<Guardian> {
+        return guardians.filter { it.isBatteryAlertEnabled }
     }
 }
 

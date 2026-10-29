@@ -112,13 +112,13 @@ import com.safeher.app.ui.theme.SafeHerPurplePrimary
 import com.safeher.app.ui.theme.SafeHerSosCrimson
 import com.safeher.app.ui.theme.SafeHerSurfaceWhite
 import com.safeher.app.ui.theme.SafeHerTextMuted
+import com.safeher.app.data.RepositoryProvider
 import com.safeher.app.ui.theme.SafeHerTextPrimary
 import com.safeher.app.ui.theme.SafeHerTextSecondary
 
 class ContactsViewModelFactory(private val context: Context) : ViewModelProvider.Factory {
     override fun <T : ViewModel> create(modelClass: Class<T>): T {
-        val database = SafeHerDatabase.getInstance(context.applicationContext)
-        val repo = GuardianRepositoryImpl(database.guardianDao())
+        val repo = RepositoryProvider.getGuardianRepository(context)
         @Suppress("UNCHECKED_CAST")
         return ContactsViewModel(repo) as T
     }
@@ -233,7 +233,8 @@ fun ContactsScreen(
                             guardian = guardian,
                             onEditClick = { viewModel.openEditDialog(guardian) },
                             onDeleteClick = { viewModel.requestDelete(guardian) },
-                            onVerificationInfoClick = { viewModel.showVerificationInfo(guardian) }
+                            onVerificationInfoClick = { viewModel.showVerificationInfo(guardian) },
+                            onToggleSosClick = { viewModel.toggleSosEnabled(guardian.id, it) }
                         )
                     }
 
@@ -522,7 +523,8 @@ private fun GuardianCard(
     guardian: Guardian,
     onEditClick: () -> Unit,
     onDeleteClick: () -> Unit,
-    onVerificationInfoClick: () -> Unit
+    onVerificationInfoClick: () -> Unit,
+    onToggleSosClick: (Boolean) -> Unit
 ) {
     Card(
         colors = CardDefaults.cardColors(containerColor = SafeHerSurfaceWhite),
@@ -654,6 +656,35 @@ private fun GuardianCard(
                     color = SafeHerTextMuted
                 )
             }
+
+            Spacer(modifier = Modifier.height(8.dp))
+
+            // SOS Alert inclusion toggle
+            Row(
+                modifier = Modifier
+                    .fillMaxWidth()
+                    .padding(horizontal = 4.dp),
+                verticalAlignment = Alignment.CenterVertically,
+                horizontalArrangement = Arrangement.SpaceBetween
+            ) {
+                Row(verticalAlignment = Alignment.CenterVertically) {
+                    Text(
+                        text = "Include in SOS Alerts",
+                        fontSize = 12.sp,
+                        fontWeight = FontWeight.Medium,
+                        color = SafeHerTextPrimary
+                    )
+                }
+
+                androidx.compose.material3.Switch(
+                    checked = guardian.isSosEnabled,
+                    onCheckedChange = { onToggleSosClick(it) },
+                    colors = androidx.compose.material3.SwitchDefaults.colors(
+                        checkedThumbColor = Color.White,
+                        checkedTrackColor = SafeHerPurplePrimary
+                    )
+                )
+            }
         }
     }
 }
@@ -666,70 +697,20 @@ private fun ContactsEmptyState(
     Column(
         modifier = modifier
             .fillMaxWidth()
-            .padding(24.dp),
-        horizontalAlignment = Alignment.CenterHorizontally,
-        verticalArrangement = Arrangement.Center
+            .padding(horizontal = 20.dp, vertical = 16.dp),
+        horizontalAlignment = Alignment.CenterHorizontally
     ) {
-        Box(
-            modifier = Modifier
-                .size(72.dp)
-                .background(SafeHerPurpleContainer, CircleShape),
-            contentAlignment = Alignment.Center
-        ) {
-            Icon(
-                imageVector = Icons.Default.People,
-                contentDescription = null,
-                tint = SafeHerPurplePrimary,
-                modifier = Modifier.size(36.dp)
-            )
-        }
-
-        Spacer(modifier = Modifier.height(16.dp))
-
-        Text(
-            text = stringResource(R.string.contacts_empty_title),
-            style = MaterialTheme.typography.titleMedium,
-            fontWeight = FontWeight.Bold,
-            color = SafeHerTextPrimary
+        com.safeher.app.ui.components.EmptyStatePanel(
+            icon = Icons.Default.People,
+            title = stringResource(R.string.contacts_empty_title),
+            body = stringResource(R.string.contacts_empty_desc),
+            actionLabel = stringResource(R.string.contacts_add_first_action),
+            onAction = onAddClick
         )
-
-        Spacer(modifier = Modifier.height(6.dp))
-
-        Text(
-            text = stringResource(R.string.contacts_empty_desc),
-            style = MaterialTheme.typography.bodySmall,
-            color = SafeHerTextSecondary,
-            lineHeight = 18.sp,
-            modifier = Modifier.padding(horizontal = 16.dp)
-        )
-
-        Spacer(modifier = Modifier.height(24.dp))
-
-        Button(
-            onClick = onAddClick,
-            colors = ButtonDefaults.buttonColors(containerColor = SafeHerPurplePrimary),
-            shape = RoundedCornerShape(14.dp),
-            modifier = Modifier
-                .fillMaxWidth(0.8f)
-                .semantics { contentDescription = "Add first trusted guardian" }
-        ) {
-            Icon(
-                imageVector = Icons.Default.PersonAdd,
-                contentDescription = null,
-                modifier = Modifier.size(18.dp)
-            )
-            Spacer(modifier = Modifier.width(8.dp))
-            Text(
-                text = stringResource(R.string.contacts_add_first_action),
-                fontWeight = FontWeight.Bold
-            )
-        }
-
-        Spacer(modifier = Modifier.height(16.dp))
-
+        Spacer(modifier = Modifier.height(12.dp))
         Row(
             verticalAlignment = Alignment.CenterVertically,
-            modifier = Modifier.padding(horizontal = 24.dp)
+            modifier = Modifier.padding(horizontal = 16.dp)
         ) {
             Icon(
                 imageVector = Icons.Default.Security,
@@ -741,8 +722,7 @@ private fun ContactsEmptyState(
             Text(
                 text = "Contacts stay on device • Zero network upload",
                 style = MaterialTheme.typography.labelSmall,
-                color = SafeHerTextMuted,
-                fontSize = 11.sp
+                color = SafeHerTextMuted
             )
         }
     }

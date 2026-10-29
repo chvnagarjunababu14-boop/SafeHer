@@ -69,12 +69,9 @@ class DemoModeTest {
     }
 
     @Test
-    fun demoModeManager_initialStateAndProfileSwitching() {
+    fun demoModeManager_initialStateAndToggle() {
         assertTrue(demoModeManager.isDemoMode.value)
         assertEquals(DemoProfile.USER, demoModeManager.activeProfile.value)
-
-        demoModeManager.switchProfile(DemoProfile.GUARDIAN)
-        assertEquals(DemoProfile.GUARDIAN, demoModeManager.activeProfile.value)
 
         demoModeManager.setDemoMode(false)
         assertFalse(demoModeManager.isDemoMode.value)
@@ -90,12 +87,6 @@ class DemoModeTest {
         assertEquals("demo.user@safeher.local", user?.email)
         assertEquals("Demo User", user?.displayName)
         assertTrue(user?.isEmailVerified == true)
-
-        // Switch to Demo Guardian
-        demoModeManager.switchProfile(DemoProfile.GUARDIAN)
-        val guardianUser = authRepo.getCurrentUser()
-        assertEquals("demo_guardian_priya_202", guardianUser?.uid)
-        assertEquals("priya.guardian@safeher.local", guardianUser?.email)
 
         // Explicit Sign-out
         authRepo.signOut()
@@ -120,11 +111,12 @@ class DemoModeTest {
         assertEquals("demo_guardian_priya_202", initialGuardians[0].guardianUid)
         assertEquals("Demo Guardian (Priya)", initialGuardians[0].guardianDisplayName)
 
-        // 2. Create Invitation returns DEMO code
+        // 2. Create Invitation returns a word-phrase invite
         val inviteResult = guardianRepo.createInvitation()
         assertTrue(inviteResult.isSuccess)
         val invite = inviteResult.getOrThrow()
-        assertTrue(invite.code.startsWith("DEMO"))
+        assertTrue(invite.code.contains("-"))
+        assertTrue(invite.code.length >= 10)
         assertTrue(invite.expiresAtMillis > System.currentTimeMillis())
 
         // 3. Accept Invitation adds linked guardian
@@ -198,7 +190,6 @@ class DemoModeTest {
         val sosRepo = DemoRemoteSosRepository(demoModeManager, testDispatcher)
 
         // Mutate states
-        demoModeManager.switchProfile(DemoProfile.GUARDIAN)
         authRepo.signOut()
         guardianRepo.acceptInvitation("DEMO1234")
 

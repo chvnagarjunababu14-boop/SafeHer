@@ -16,16 +16,20 @@ val SafeHerPinkDark = Color(0xFFBE185D)
 val SafeHerPinkContainer = Color(0xFFFCE7F3)
 val SafeHerOnPinkContainer = Color(0xFF831843)
 
-// SafeHer Lavender & Neutral Palette
-val SafeHerLavenderBackground = Color(0xFFF8F6FD)
+// SafeHer Lavender & Neutral Palette — calm, high-legibility safety surfaces
+val SafeHerLavenderBackground = Color(0xFFF5F3FB)
 val SafeHerSurfaceWhite = Color(0xFFFFFFFF)
-val SafeHerSurfaceVariant = Color(0xFFF1ECFB)
-val SafeHerBorderLavender = Color(0xFFE5DEFF)
+val SafeHerSurfaceVariant = Color(0xFFEEEAF8)
+val SafeHerBorderLavender = Color(0xFFDDD5F0)
 
-// Text & Content Hierarchy
-val SafeHerTextPrimary = Color(0xFF1E1B4B)
-val SafeHerTextSecondary = Color(0xFF4B5563)
-val SafeHerTextMuted = Color(0xFF9CA3AF)
+// Text & Content Hierarchy — deepened navy for WCAG-friendly contrast on lavender
+val SafeHerTextPrimary = Color(0xFF16132E)
+val SafeHerTextSecondary = Color(0xFF4A4563)
+val SafeHerTextMuted = Color(0xFF8B879C)
+
+// Semantic success soft fill (prefer over hardcoded Material greens in dialogs)
+val SafeHerSuccessContainer = Color(0xFFE7F7F0)
+val SafeHerOnSuccessContainer = Color(0xFF065F46)
 
 // Safety Status & SOS Emergency Indicators
 val SafeHerStatusSafe = Color(0xFF10B981)

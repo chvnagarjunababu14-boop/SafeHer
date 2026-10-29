@@ -54,4 +54,29 @@ interface GuardianRepository {
      * Retrieves a single guardian by ID.
      */
     suspend fun getGuardianById(id: Long): Guardian?
+
+    /**
+     * Updates the SOS inclusion preference for a guardian.
+     */
+    suspend fun updateSosEnabled(id: Long, isSosEnabled: Boolean): Boolean
+
+    /**
+     * One-shot retrieval of guardians enabled for SOS.
+     */
+    suspend fun getSosEnabledGuardians(): List<Guardian>
+
+    /**
+     * Observes the list of guardians enabled for SOS.
+     */
+    fun getSosEnabledGuardiansFlow(): Flow<List<Guardian>>
+
+    /**
+     * Updates the battery-alert inclusion preference for a guardian (defaults OFF).
+     */
+    suspend fun updateBatteryAlertEnabled(id: Long, isBatteryAlertEnabled: Boolean): Boolean
+
+    /**
+     * One-shot retrieval of guardians opted in for battery alerts.
+     */
+    suspend fun getBatteryAlertEnabledGuardians(): List<Guardian>
 }

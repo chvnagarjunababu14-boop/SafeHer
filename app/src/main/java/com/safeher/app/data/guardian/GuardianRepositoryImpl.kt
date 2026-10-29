@@ -2,51 +2,92 @@ package com.safeher.app.data.guardian
 
 import com.safeher.app.data.local.db.GuardianDao
 import com.safeher.app.data.local.db.GuardianEntity
-import kotlinx.coroutines.CoroutineDispatcher
-import kotlinx.coroutines.Dispatchers
-import kotlinx.coroutines.flow.Flow
-import kotlinx.coroutines.flow.MutableStateFlow
-import kotlinx.coroutines.flow.asStateFlow
-import kotlinx.coroutines.flow.map
-import kotlinx.coroutines.withContext
 import com.safeher.app.data.phone.CountryInfo
 import com.safeher.app.data.phone.CountryRegistry
 import com.safeher.app.data.phone.PhoneParseResult
 import com.safeher.app.data.phone.PhoneNumberHelper
+import com.safeher.app.data.session.UserSessionManager
+import kotlinx.coroutines.CoroutineDispatcher
+import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.flow.Flow
+import kotlinx.coroutines.flow.MutableStateFlow
+import kotlinx.coroutines.flow.combine
+import kotlinx.coroutines.flow.flowOn
+import kotlinx.coroutines.flow.map
+import kotlinx.coroutines.withContext
 
 /**
  * Concrete implementation of [GuardianRepository] backed by Room SQLite database.
- * Enforces privacy, phone number normalization, and strict validation.
+ * Enforces account isolation, privacy, phone number normalization, and strict validation.
  */
 class GuardianRepositoryImpl(
     private val dao: GuardianDao,
+    private val sessionManager: UserSessionManager? = null,
     private val ioDispatcher: CoroutineDispatcher = Dispatchers.IO
 ) : GuardianRepository {
+
+    constructor(
+        dao: GuardianDao,
+        ioDispatcher: CoroutineDispatcher
+    ) : this(dao, null, ioDispatcher)
 
     private val updateTrigger = MutableStateFlow(System.currentTimeMillis())
 
     override fun getGuardiansFlow(): Flow<List<Guardian>> {
-        return updateTrigger.map {
-            getGuardians()
-        }
+        val sessionFlow = sessionManager?.activeUserId ?: MutableStateFlow(null)
+        return combine(sessionFlow, updateTrigger) { uid, _ ->
+            withContext(ioDispatcher) {
+                if (sessionManager != null && uid == null) {
+                    emptyList()
+                } else if (uid != null) {
+                    dao.getGuardiansForUser(uid).map { it.toDomain() }
+                } else {
+                    dao.allGuardians.map { it.toDomain() }
+                }
+            }
+        }.flowOn(ioDispatcher)
     }
 
     override fun getGuardianCountFlow(): Flow<Int> {
-        return updateTrigger.map {
-            getGuardianCount()
-        }
+        val sessionFlow = sessionManager?.activeUserId ?: MutableStateFlow(null)
+        return combine(sessionFlow, updateTrigger) { uid, _ ->
+            withContext(ioDispatcher) {
+                if (sessionManager != null && uid == null) {
+                    0
+                } else if (uid != null) {
+                    dao.getGuardianCountForUser(uid)
+                } else {
+                    dao.guardianCount
+                }
+            }
+        }.flowOn(ioDispatcher)
     }
 
     override suspend fun getGuardians(): List<Guardian> = withContext(ioDispatcher) {
-        dao.allGuardians.map { it.toDomain() }
+        if (sessionManager != null) {
+            val uid = sessionManager.currentUserId ?: return@withContext emptyList()
+            dao.getGuardiansForUser(uid).map { it.toDomain() }
+        } else {
+            dao.allGuardians.map { it.toDomain() }
+        }
     }
 
     override suspend fun getGuardianCount(): Int = withContext(ioDispatcher) {
-        dao.guardianCount
+        if (sessionManager != null) {
+            val uid = sessionManager.currentUserId ?: return@withContext 0
+            dao.getGuardianCountForUser(uid)
+        } else {
+            dao.guardianCount
+        }
     }
 
     override suspend fun getGuardianById(id: Long): Guardian? = withContext(ioDispatcher) {
-        dao.getGuardianById(id)?.toDomain()
+        if (sessionManager != null) {
+            val uid = sessionManager.currentUserId ?: return@withContext null
+            dao.getGuardianByIdForUser(id, uid)?.toDomain()
+        } else {
+            dao.getGuardianById(id)?.toDomain()
+        }
     }
 
     override suspend fun addGuardian(
@@ -54,6 +95,11 @@ class GuardianRepositoryImpl(
         phoneNumber: String,
         relationship: String?
     ): GuardianOperationResult = withContext(ioDispatcher) {
+        val currentUid = sessionManager?.currentUserId
+        if (sessionManager != null && currentUid == null) {
+            return@withContext GuardianOperationResult.Error("Cannot add guardian when signed out")
+        }
+
         val trimmedName = name.trim()
         if (trimmedName.isEmpty()) {
             return@withContext GuardianOperationResult.ValidationError("name", "Name is required")
@@ -70,8 +116,12 @@ class GuardianRepositoryImpl(
             }
         }
 
-        // Check for duplicates
-        val existing = dao.getGuardianByPhoneNumber(normalizedPhone)
+        // Check for duplicates in current user's circle
+        val existing = if (currentUid != null) {
+            dao.getGuardianByPhoneNumberForUser(normalizedPhone, currentUid)
+        } else {
+            dao.getGuardianByPhoneNumber(normalizedPhone)
+        }
         if (existing != null) {
             return@withContext GuardianOperationResult.DuplicatePhone(
                 "A guardian with phone number $normalizedPhone is already registered in your circle."
@@ -81,13 +131,15 @@ class GuardianRepositoryImpl(
         val now = System.currentTimeMillis()
         val entity = GuardianEntity(
             0,
+            currentUid,
             trimmedName,
             normalizedPhone,
             relationship?.trim()?.ifBlank { null },
             false, // Never verified on creation
             now,
             now,
-            0L
+            0L,
+            true // isSosEnabled defaults to true
         )
 
         return@withContext try {
@@ -105,8 +157,16 @@ class GuardianRepositoryImpl(
         phoneNumber: String,
         relationship: String?
     ): GuardianOperationResult = withContext(ioDispatcher) {
-        val existing = dao.getGuardianById(id)
-            ?: return@withContext GuardianOperationResult.Error("Guardian not found")
+        val currentUid = sessionManager?.currentUserId
+        if (sessionManager != null && currentUid == null) {
+            return@withContext GuardianOperationResult.Error("Cannot update guardian when signed out")
+        }
+
+        val existing = if (currentUid != null) {
+            dao.getGuardianByIdForUser(id, currentUid)
+        } else {
+            dao.getGuardianById(id)
+        } ?: return@withContext GuardianOperationResult.Error("Guardian not found")
 
         val trimmedName = name.trim()
         if (trimmedName.isEmpty()) {
@@ -124,8 +184,12 @@ class GuardianRepositoryImpl(
             }
         }
 
-        // Check if phone changed and collides with another guardian
-        val phoneHolder = dao.getGuardianByPhoneNumber(normalizedPhone)
+        // Check if phone changed and collides with another guardian for this user
+        val phoneHolder = if (currentUid != null) {
+            dao.getGuardianByPhoneNumberForUser(normalizedPhone, currentUid)
+        } else {
+            dao.getGuardianByPhoneNumber(normalizedPhone)
+        }
         if (phoneHolder != null && phoneHolder.id != id) {
             return@withContext GuardianOperationResult.DuplicatePhone(
                 "Another guardian is already registered with phone number $normalizedPhone."
@@ -135,13 +199,16 @@ class GuardianRepositoryImpl(
         val now = System.currentTimeMillis()
         val updated = GuardianEntity(
             existing.id,
+            currentUid ?: existing.userId,
             trimmedName,
             normalizedPhone,
             relationship?.trim()?.ifBlank { null },
             existing.isVerified && existing.phoneNumber == normalizedPhone, // Invalidate verification if phone changed
             existing.createdAt,
             now,
-            if (existing.phoneNumber == normalizedPhone) existing.verifiedAt else 0L
+            if (existing.phoneNumber == normalizedPhone) existing.verifiedAt else 0L,
+            existing.isSosEnabled,
+            existing.isBatteryAlertEnabled
         )
 
         return@withContext try {
@@ -153,8 +220,102 @@ class GuardianRepositoryImpl(
         }
     }
 
+    override suspend fun updateSosEnabled(id: Long, isSosEnabled: Boolean): Boolean = withContext(ioDispatcher) {
+        val currentUid = sessionManager?.currentUserId
+        if (sessionManager != null && currentUid == null) {
+            return@withContext false
+        }
+
+        val rows = if (currentUid != null) {
+            dao.updateSosEnabledForUser(id, currentUid, isSosEnabled, System.currentTimeMillis())
+        } else {
+            val guardian = dao.getGuardianById(id) ?: return@withContext false
+            guardian.isSosEnabled = isSosEnabled
+            guardian.updatedAt = System.currentTimeMillis()
+            dao.update(guardian)
+            1
+        }
+        if (rows > 0) {
+            notifyDataChanged()
+            true
+        } else {
+            false
+        }
+    }
+
+    override suspend fun getSosEnabledGuardians(): List<Guardian> = withContext(ioDispatcher) {
+        if (sessionManager != null) {
+            val uid = sessionManager.currentUserId ?: return@withContext emptyList()
+            dao.getSosEnabledGuardiansForUser(uid).map { it.toDomain() }
+        } else {
+            dao.allSosEnabledGuardians.map { it.toDomain() }
+        }
+    }
+
+    override fun getSosEnabledGuardiansFlow(): Flow<List<Guardian>> {
+        val sessionFlow = sessionManager?.activeUserId ?: MutableStateFlow(null)
+        return combine(sessionFlow, updateTrigger) { uid, _ ->
+            withContext(ioDispatcher) {
+                if (sessionManager != null && uid == null) {
+                    emptyList()
+                } else if (uid != null) {
+                    dao.getSosEnabledGuardiansForUser(uid).map { it.toDomain() }
+                } else {
+                    dao.allSosEnabledGuardians.map { it.toDomain() }
+                }
+            }
+        }.flowOn(ioDispatcher)
+    }
+
+    override suspend fun updateBatteryAlertEnabled(id: Long, isBatteryAlertEnabled: Boolean): Boolean =
+        withContext(ioDispatcher) {
+            val currentUid = sessionManager?.currentUserId
+            if (sessionManager != null && currentUid == null) {
+                return@withContext false
+            }
+
+            val rows = if (currentUid != null) {
+                dao.updateBatteryAlertEnabledForUser(
+                    id,
+                    currentUid,
+                    isBatteryAlertEnabled,
+                    System.currentTimeMillis()
+                )
+            } else {
+                val guardian = dao.getGuardianById(id) ?: return@withContext false
+                guardian.isBatteryAlertEnabled = isBatteryAlertEnabled
+                guardian.updatedAt = System.currentTimeMillis()
+                dao.update(guardian)
+                1
+            }
+            if (rows > 0) {
+                notifyDataChanged()
+                true
+            } else {
+                false
+            }
+        }
+
+    override suspend fun getBatteryAlertEnabledGuardians(): List<Guardian> = withContext(ioDispatcher) {
+        if (sessionManager != null) {
+            val uid = sessionManager.currentUserId ?: return@withContext emptyList()
+            dao.getBatteryAlertEnabledGuardiansForUser(uid).map { it.toDomain() }
+        } else {
+            dao.allBatteryAlertEnabledGuardians.map { it.toDomain() }
+        }
+    }
+
     override suspend fun deleteGuardian(id: Long): Boolean = withContext(ioDispatcher) {
-        val rows = dao.deleteById(id)
+        val currentUid = sessionManager?.currentUserId
+        if (sessionManager != null && currentUid == null) {
+            return@withContext false
+        }
+
+        val rows = if (currentUid != null) {
+            dao.deleteByIdForUser(id, currentUid)
+        } else {
+            dao.deleteById(id)
+        }
         if (rows > 0) {
             notifyDataChanged()
             true
@@ -195,6 +356,8 @@ class GuardianRepositoryImpl(
         isVerified = isVerified,
         createdAt = createdAt,
         updatedAt = updatedAt,
-        verifiedAt = if (verifiedAt > 0) verifiedAt else null
+        verifiedAt = if (verifiedAt > 0) verifiedAt else null,
+        isSosEnabled = isSosEnabled,
+        isBatteryAlertEnabled = isBatteryAlertEnabled
     )
 }
